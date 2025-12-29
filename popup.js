@@ -5,16 +5,14 @@
 // - Capture selected text and store as highlight/quote linked to a material
 // - Assign materials to single-level collections
 
-const STATUS = {
-	to_read: "to_read",
-	reading: "reading",
-	finished: "finished",
-};
+// Page status was simplified to "Mark finished" only.
 
 // The popup rerenders frequently; keep the user's selected material in memory
 // so selecting an existing material works even when the current URL isn't
 // already part of that material.
 let lastSelectedMaterialId = "";
+let lastSelectedChapterUrl = "";
+const lastSelectedChapterByMaterial = Object.create(null);
 let chaptersPage = 1;
 const CHAPTERS_PER_PAGE = 5;
 
@@ -94,6 +92,13 @@ function setRequiresMaterialVisible(hasMaterial) {
 	}
 }
 
+function setRequiresChapterVisible(hasChapter) {
+	const gated = document.querySelectorAll(".requires-chapter");
+	for (const node of gated) {
+		node.classList.toggle("hidden", !hasChapter);
+	}
+}
+
 function setMultiPageVisible(isMulti) {
 	const multi = el("multiPageSection");
 	const singleNote = el("singlePageNote");
@@ -129,6 +134,70 @@ function sortChapters(chapters) {
 	return [...(chapters || [])].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
 }
 
+function chapterTitle(chapter, pages) {
+	const explicit = typeof chapter?.title === "string" ? chapter.title.trim() : "";
+	if (explicit) return explicit;
+	const p = pages?.[chapter?.url];
+	const fromPage = typeof p?.title === "string" ? p.title.trim() : "";
+	return fromPage;
+}
+
+function chapterByUrl(chapters, url) {
+	return (chapters || []).find((c) => c?.url === url) || null;
+}
+
+function commonPrefixLength(a, b) {
+	const max = Math.min(a.length, b.length);
+	let i = 0;
+	for (; i < max; i++) {
+		if (a[i] !== b[i]) break;
+	}
+	return i;
+}
+
+function pickBestMaterialId(materials, currentUrl) {
+	if (!currentUrl) return "";
+	let bestId = "";
+	let bestScore = -1;
+
+	let current;
+	try {
+		current = new URL(currentUrl);
+	} catch {
+		return "";
+	}
+
+	for (const [id, m] of Object.entries(materials || {})) {
+		let score = 0;
+		const indexUrl = normalizeUrl(m?.indexUrl);
+		if (!indexUrl) continue;
+
+		if (indexUrl === currentUrl) {
+			score = 10000;
+		} else if (Array.isArray(m?.chapters) && m.chapters.some((c) => c?.url === currentUrl)) {
+			score = 9000;
+		} else if (currentUrl.startsWith(indexUrl)) {
+			score = 8000 + indexUrl.length;
+		} else {
+			try {
+				const idx = new URL(indexUrl);
+				if (idx.host === current.host) {
+					score = 7000 + commonPrefixLength(idx.pathname, current.pathname);
+				}
+			} catch {
+				// ignore
+			}
+		}
+
+		if (score > bestScore) {
+			bestScore = score;
+			bestId = id;
+		}
+	}
+
+	return bestId;
+}
+
 // Collections removed in this iteration.
 
 async function refreshUI() {
@@ -147,12 +216,10 @@ async function refreshUI() {
 	const materials = data.materials || {};
 	// Collections removed in this iteration.
 
-	// Page section
-	const page = url ? pages[url] : null;
-	el("pageProgress").textContent = url ? String(clampProgress(page?.progress ?? 0)) : "—";
-
-	// Ignore scroll checkbox
-	el("ignoreScroll").checked = Boolean(page?.ignoreScrollProgress);
+	// Page progress section now follows the selected chapter (default: latest chapter).
+	// We still show the current URL at the top, but progress/finished/ignore-scroll are for the selected chapter.
+	const markBtn = el("markFinished");
+	const goBtn = el("goToProgress");
 
 	// Material selection dropdown
 	const materialSelect = el("materialSelect");
@@ -173,9 +240,10 @@ async function refreshUI() {
 	}
 
 	const inferredMaterialId = url ? findMaterialForUrl(materials, url) : null;
+	const bestMatchId = url ? pickBestMaterialId(materials, url) : "";
 	const preferred = lastSelectedMaterialId && materials[lastSelectedMaterialId]
 		? lastSelectedMaterialId
-		: (inferredMaterialId || "");
+		: (inferredMaterialId || bestMatchId || "");
 	if (preferred) materialSelect.value = preferred;
 	const selectedMaterialId = materialSelect.value || "";
 	lastSelectedMaterialId = selectedMaterialId;
@@ -198,6 +266,69 @@ async function refreshUI() {
 	const chaptersEl = el("chapters");
 	chaptersEl.innerHTML = "";
 	const chaptersAll = isMulti ? sortChapters(selectedMaterial?.chapters || []) : [];
+
+	// Pick the selected chapter:
+	// - If user previously selected one for this material in this popup session, keep it.
+	// - Else if the current active tab URL is a chapter, use it.
+	// - Else default to the latest chapter.
+	let selectedChapterUrl = "";
+	if (isMulti && selectedMaterialId && chaptersAll.length) {
+		const remembered = typeof lastSelectedChapterByMaterial[selectedMaterialId] === "string"
+			? lastSelectedChapterByMaterial[selectedMaterialId]
+			: "";
+		const rememberedExists = remembered && chaptersAll.some((c) => c.url === remembered);
+		const tabIsChapter = url && chaptersAll.some((c) => c.url === url);
+
+		if (rememberedExists) {
+			selectedChapterUrl = remembered;
+		} else if (tabIsChapter) {
+			selectedChapterUrl = url;
+		} else {
+			selectedChapterUrl = chaptersAll[chaptersAll.length - 1]?.url || "";
+		}
+		lastSelectedChapterByMaterial[selectedMaterialId] = selectedChapterUrl;
+	}
+
+	lastSelectedChapterUrl = selectedChapterUrl;
+	setRequiresChapterVisible(Boolean(selectedChapterUrl));
+
+	// Ensure the selected (latest) chapter is visible by default.
+	if (selectedChapterUrl && isMulti) {
+		const idx = chaptersAll.findIndex((c) => c.url === selectedChapterUrl);
+		if (idx >= 0) {
+			const preferredPage = Math.floor(idx / CHAPTERS_PER_PAGE) + 1;
+			// If we're on a page that doesn't include the selected chapter, jump to it.
+			const start = (chaptersPage - 1) * CHAPTERS_PER_PAGE;
+			const end = start + CHAPTERS_PER_PAGE;
+			if (!(idx >= start && idx < end)) {
+				chaptersPage = preferredPage;
+			}
+		}
+	}
+
+	const selectedChapter = selectedChapterUrl ? chapterByUrl(chaptersAll, selectedChapterUrl) : null;
+	const selectedPage = selectedChapterUrl ? (pages[selectedChapterUrl] || null) : null;
+	const selectedProgress = selectedChapterUrl
+		? clampProgress(selectedPage?.progress ?? selectedChapter?.progress ?? 0)
+		: null;
+
+	if (selectedChapterUrl) {
+		el("pageProgress").textContent = String(selectedProgress ?? 0);
+	} else {
+		el("pageProgress").textContent = "—";
+	}
+
+	const isFinished = selectedChapterUrl && selectedPage?.status === "finished";
+	if (markBtn) markBtn.textContent = isFinished ? "Unmark finished" : "Mark finished";
+	if (markBtn) markBtn.disabled = !selectedChapterUrl;
+	if (goBtn) goBtn.disabled = !selectedChapterUrl;
+
+	// Ignore scroll checkbox follows selected chapter.
+	const ignoreScroll = el("ignoreScroll");
+	if (ignoreScroll) {
+		ignoreScroll.checked = Boolean(selectedPage?.ignoreScrollProgress);
+		ignoreScroll.disabled = !selectedChapterUrl;
+	}
 	const totalChapterPages = Math.max(1, Math.ceil(chaptersAll.length / CHAPTERS_PER_PAGE));
 	chaptersPage = Math.max(1, Math.min(totalChapterPages, chaptersPage));
 
@@ -224,15 +355,28 @@ async function refreshUI() {
 	const pageItems = chaptersAll.slice(startIndex, startIndex + CHAPTERS_PER_PAGE);
 
 	if (pageItems.length) {
-		for (const c of pageItems) {
+		for (let i = 0; i < pageItems.length; i++) {
+			const c = pageItems[i];
 			const li = document.createElement("li");
 			const shortUrl = c.url.length > 64 ? c.url.slice(0, 64) + "…" : c.url;
+			const isSelected = Boolean(selectedChapterUrl) && c.url === selectedChapterUrl;
+			const title = chapterTitle(c, pages);
+			const displayTitle = title ? ` — ${escapeHtml(title)}` : "";
+
 			li.innerHTML = `
 				<div class="row between" style="margin-bottom: 0;">
-					<div>Chapter ${escapeHtml(String(Number(c.order) || "?"))}</div>
-					<div class="small">${clampProgress(c.progress ?? 0)}%</div>
+					<div>
+						<strong>Chapter ${escapeHtml(String(Number(c.order) || "?"))}</strong>${isSelected ? ` <span class="small">(selected)</span>` : ""}
+						<div class="small">${selectedChapterUrl && c.url === selectedChapterUrl ? escapeHtml(String(selectedProgress ?? clampProgress(c.progress ?? 0))) : escapeHtml(String(clampProgress(c.progress ?? 0)))}%</div>
+						<a class="small link ellipsis-link">${escapeHtml(shortUrl)}</a>
+					</div>
+					<div class="controls" style="flex-direction: column; align-items: flex-end; gap: 6px;">
+						<button class="btn small" data-action="select-chapter" data-url="${escapeHtml(c.url)}">Select</button>
+						<button class="btn small" data-action="open-chapter" data-url="${escapeHtml(c.url)}">Open</button>
+						<button class="btn small" data-action="delete-chapter" data-url="${escapeHtml(c.url)}">Delete</button>
+					</div>
 				</div>
-				<a class="small link" data-action="open-chapter" style="text-decoration:none;" data-url="${escapeHtml(c.url)}">${escapeHtml(shortUrl)}</a>
+
 			`;
 			chaptersEl.appendChild(li);
 		}
@@ -271,14 +415,101 @@ async function refreshUI() {
 		bookmarksEl.appendChild(li);
 	}
 
-	// Status buttons hint
-	const status = page?.status;
-	setStatusLine(status ? `Current page status: ${status}` : "Current page status: (none)");
+	// Don't auto-write status text on refresh; reserve status line for user actions/errors.
 
 	// Enable/disable buttons depending on context.
 	el("addChapter").disabled = !selectedMaterialId || !url || !isMulti;
 	el("addQuote").disabled = !selectedMaterialId || !url || !isMulti;
-	el("ignoreScroll").disabled = !url;
+	// ignoreScroll/markFinished/goToProgress are handled above (selectedChapterUrl)
+}
+
+async function toggleFinished() {
+	const url = lastSelectedChapterUrl;
+	if (!url) {
+		setStatusLine("No chapter selected.");
+		return;
+	}
+
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const page = data.pages?.[url] || {};
+	const isFinished = page?.status === "finished";
+	const res = await bg({ type: "setPageFinished", url, finished: !isFinished });
+	if (!res?.ok) {
+		setStatusLine(`Failed to update finished (${res?.error || "unknown"}).`);
+		return;
+	}
+	await refreshUI();
+}
+
+async function goToSelectedProgress() {
+	const url = lastSelectedChapterUrl;
+	if (!url) {
+		setStatusLine("No chapter selected.");
+		return;
+	}
+
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const page = data.pages?.[url] || {};
+	let progress = clampProgress(page?.progress ?? 0);
+	// If we have no page record, try to get progress from chapter record.
+	const materialId = el("materialSelect")?.value || "";
+	const chapters = sortChapters(data.materials?.[materialId]?.chapters || []);
+	const c = chapterByUrl(chapters, url);
+	if (!data.pages?.[url] && c) progress = clampProgress(c.progress ?? 0);
+
+	const tab = await getActiveTab();
+	if (!tab?.id) {
+		await chrome.tabs.create({ url });
+		return;
+	}
+
+	setStatusLine("Opening chapter...");
+	await chrome.tabs.update(tab.id, { url });
+
+	// Wait for the tab to finish loading, then scroll.
+	const tabId = tab.id;
+	const targetUrl = url;
+	const timeoutMs = 10000;
+	const start = Date.now();
+	await new Promise((resolve) => {
+		let done = false;
+		function cleanup() {
+			if (done) return;
+			done = true;
+			chrome.tabs.onUpdated.removeListener(listener);
+			resolve();
+		}
+		function listener(updatedTabId, changeInfo, updatedTab) {
+			if (updatedTabId !== tabId) return;
+			if (changeInfo.status !== "complete") return;
+			const current = normalizeUrl(updatedTab?.url);
+			if (current && current === targetUrl) cleanup();
+		}
+		chrome.tabs.onUpdated.addListener(listener);
+		const timer = setInterval(() => {
+			if (Date.now() - start > timeoutMs) {
+				clearInterval(timer);
+				cleanup();
+			}
+		}, 250);
+	});
+
+	try {
+		await chrome.tabs.sendMessage(tabId, { type: "scrollToProgress", progress });
+		setStatusLine(`Scrolled to ${progress}%.`);
+	} catch {
+		setStatusLine("Opened, but couldn't scroll (content script not ready). Try again.");
+	}
 }
 
 function renderChapterPager(totalPages, currentPage) {
@@ -323,19 +554,6 @@ function escapeHtml(str) {
 		.replaceAll(">", "&gt;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#39;");
-}
-
-async function setStatus(status) {
-	const tab = await getActiveTab();
-	const url = normalizeUrl(tab?.url);
-	if (!url) return;
-
-	const res = await bg({ type: "setPageStatus", url, status });
-	if (!res?.ok) {
-		setStatusLine("Failed to set status.");
-		return;
-	}
-	await refreshUI();
 }
 
 async function declareMaterial() {
@@ -518,21 +736,12 @@ async function deleteBookmarkFromSelectedMaterial(payload) {
 }
 
 async function setIgnoreScrollProgress(enabled) {
-	const tab = await getActiveTab();
-	const url = normalizeUrl(tab?.url);
-	if (!url) return;
+	const url = lastSelectedChapterUrl;
+	if (!url) {
+		setStatusLine("No chapter selected.");
+		return;
+	}
 
-	// Store this flag on the page record.
-	const { ok, data } = await bg({ type: "getData" });
-	if (!ok) return;
-
-	const pages = data.pages || {};
-	const existing = pages[url] || {};
-	pages[url] = { ...existing, ignoreScrollProgress: Boolean(enabled) };
-
-	// Reuse background's storage by writing via a small message.
-	// (We keep this minimal by using an existing message: setPageStatus isn't appropriate,
-	// so we add a dedicated message.)
 	const res = await bg({ type: "setIgnoreScrollProgress", url, ignoreScrollProgress: Boolean(enabled) });
 	if (!res?.ok) {
 		setStatusLine("Failed to update ignore-scroll.");
@@ -541,12 +750,90 @@ async function setIgnoreScrollProgress(enabled) {
 	await refreshUI();
 }
 
+async function selectChapter(url) {
+	const materialId = el("materialSelect")?.value || "";
+	const chapterUrl = normalizeUrl(url);
+	if (!materialId || !chapterUrl) return;
+	lastSelectedChapterByMaterial[materialId] = chapterUrl;
+	await refreshUI();
+}
+
+async function deleteChapter(url) {
+	const materialId = el("materialSelect")?.value || "";
+	const chapterUrl = normalizeUrl(url);
+	if (!materialId || !chapterUrl) return;
+
+	// Warn if this chapter has quotes; deleting the chapter will also delete those quotes.
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+	const material = data.materials?.[materialId];
+	const bookmarks = Array.isArray(material?.bookmarks) ? material.bookmarks : [];
+	const quoteCount = bookmarks.filter((b) => normalizeUrl(b?.url) === chapterUrl).length;
+	const promptText = quoteCount
+		? `Type DELETE to remove this chapter.\n\nWARNING: This will also delete ${quoteCount} quote(s) saved on this chapter.`
+		: "Type DELETE to remove this chapter:";
+	const typed = prompt(promptText, "");
+	if (typed === null) return;
+	if (typed !== "DELETE") {
+		setStatusLine("Not deleted.");
+		return;
+	}
+
+	setStatusLine("Deleting chapter...");
+	const res = await bg({ type: "deleteChapter", materialId, url: chapterUrl });
+	if (!res?.ok) {
+		setStatusLine(`Failed to delete chapter (${res?.error || "unknown"}).`);
+		return;
+	}
+
+	if (Number(res.removedQuotesCount) > 0) {
+		setStatusLine(`Chapter deleted. Removed ${res.removedQuotesCount} quote(s).`);
+	}
+
+	// If we deleted the selected chapter, clear selection so refreshUI picks latest.
+	if (lastSelectedChapterByMaterial[materialId] === chapterUrl) {
+		delete lastSelectedChapterByMaterial[materialId];
+	}
+	await refreshUI();
+}
+
+async function goToLatestChapter() {
+	const materialId = el("materialSelect")?.value || "";
+	if (!materialId) return;
+
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const material = data.materials?.[materialId];
+	const chapters = sortChapters(material?.chapters || []);
+	const latest = chapters.length ? chapters[chapters.length - 1] : null;
+	const latestUrl = normalizeUrl(latest?.url);
+	if (!latestUrl) {
+		setStatusLine("No chapters yet.");
+		return;
+	}
+
+	await selectChapter(latestUrl);
+	const tab = await getActiveTab();
+	if (tab?.id) {
+		await chrome.tabs.update(tab.id, { url: latestUrl });
+	} else {
+		await chrome.tabs.create({ url: latestUrl });
+	}
+}
+
 
 
 function bind() {
-	safeOn("statusToRead", "click", () => setStatus(STATUS.to_read));
-	safeOn("statusReading", "click", () => setStatus(STATUS.reading));
-	safeOn("statusFinished", "click", () => setStatus(STATUS.finished));
+	safeOn("markFinished", "click", toggleFinished);
+	safeOn("goToProgress", "click", goToSelectedProgress);
+	safeOn("goToLatestChapter", "click", goToLatestChapter);
 
 	safeOn("declareMaterial", "click", declareMaterial);
 	safeOn("declareCancel", "click", cancelDeclare);
@@ -636,15 +923,27 @@ function bind() {
 	safeOn("chapters", "click", async (e) => {
 		const target = e.target;
 		if (!(target instanceof HTMLElement)) return;
-		if (target.dataset.action !== "open-chapter") return;
-		e.preventDefault();
+		const action = target.dataset.action;
 		const url = normalizeUrl(target.dataset.url);
-		if (!url) return;
-		const tab = await getActiveTab();
-		if (tab?.id) {
-			await chrome.tabs.update(tab.id, { url });
-		} else {
-			await chrome.tabs.create({ url });
+		if (!action || !url) return;
+
+		if (action === "select-chapter") {
+			await selectChapter(url);
+			return;
+		}
+		if (action === "open-chapter") {
+			e.preventDefault();
+			const tab = await getActiveTab();
+			if (tab?.id) {
+				await chrome.tabs.update(tab.id, { url });
+			} else {
+				await chrome.tabs.create({ url });
+			}
+			return;
+		}
+		if (action === "delete-chapter") {
+			await deleteChapter(url);
+			return;
 		}
 	});
 }

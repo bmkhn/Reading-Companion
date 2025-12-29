@@ -20,7 +20,7 @@
 						<div id="materialTitle" class="value">None</div>
 					</div>
 					<div class="controls">
-						<button id="declareMaterial" class="btn primary">Declare Index</button>
+						<button id="declareMaterial" class="btn primary">Declare index</button>
 					</div>
 				</div>
 
@@ -57,10 +57,6 @@
 					</div>
 				</div>
 
-				<div class="row" id="resetRow">
-					<button id="resetData" class="btn">Reset local data</button>
-					<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
-				</div>
 			</section>
 
 			<section class="card requires-material" id="singlePageNote">
@@ -70,27 +66,23 @@
 			</section>
 
 			<section class="card requires-material" id="multiPageSection">
-				<div class="row">
-					<div class="label">Page status</div>
-					<div class="controls">
-						<button id="statusToRead" class="btn">To Read</button>
-						<button id="statusReading" class="btn">Reading</button>
-						<button id="statusFinished" class="btn">Finished</button>
+				<div class="row requires-chapter">
+					<div class="label">Progress</div>
+					<div class="value"><span id="pageProgress">—</span>%</div>
+					<div class="controls" style="margin-left: auto;">
+						<button id="markFinished" class="btn">Mark finished</button>
+						<button id="goToProgress" class="btn">Go to progress</button>
 					</div>
 				</div>
-				<div class="row">
-					<div class="label">Page progress</div>
-					<div class="value"><span id="pageProgress">—</span>%</div>
-				</div>
 
-				<div class="row">
+				<div class="row requires-chapter">
 					<label class="label">
 						<input id="ignoreScroll" type="checkbox" />
 						Ignore scroll progress
 					</label>
 				</div>
 
-				<hr class="sep" />
+				<hr class="sep requires-chapter" />
 
 				<div class="row">
 					<button id="addChapter" class="btn">Add current page as chapter</button>
@@ -98,7 +90,10 @@
 
 				<div class="row between">
 					<div class="label">Chapters</div>
-					<div class="hint" id="chaptersPageHint"></div>
+					<div class="controls" style="align-items: center; gap: 8px;">
+						<div class="hint" id="chaptersPageHint"></div>
+						<button id="goToLatestChapter" class="btn small requires-chapter">Go to latest chapter</button>
+					</div>
 				</div>
 
 				<div class="row" id="chaptersGoRow">
@@ -129,6 +124,10 @@
 
 			<section class="card footer">
 				<div id="statusLine" class="hint"></div>
+				<div class="row" id="resetRow" style="margin-bottom: 0;">
+					<button id="resetData" class="btn">Reset local data</button>
+					<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
+				</div>
 			</section>
 		</main>
 

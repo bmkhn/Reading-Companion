@@ -75,5 +75,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return sendResponse({ ok: true, text: selected });
 	}
 
+	if (message?.type === "scrollToProgress") {
+		const progress = clampProgress(message.progress);
+		const doc = document.documentElement;
+		const scrollHeight = doc.scrollHeight || 0;
+		const clientHeight = window.innerHeight || doc.clientHeight || 0;
+		const denom = Math.max(1, scrollHeight - clientHeight);
+		const top = Math.round((progress / 100) * denom);
+		window.scrollTo({ top, left: 0, behavior: "auto" });
+		// After scrolling, send an updated progress snapshot.
+		setTimeout(scheduleSendProgress, 250);
+		return sendResponse({ ok: true });
+	}
+
 	return false;
 });

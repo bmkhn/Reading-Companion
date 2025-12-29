@@ -121,6 +121,11 @@ function nextChapterOrder(material) {
 	return (orders.length ? Math.max(...orders) : 0) + 1;
 }
 
+function normalizeChapters(chapters) {
+	const sorted = [...(chapters || [])].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+	return sorted.map((c, idx) => ({ ...c, order: idx + 1 }));
+}
+
 function updateMaterialChapterProgressFromPages(material, pages) {
 	if (!material?.chapters?.length) return material;
 
@@ -192,12 +197,13 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
 		if (material && !chapterExists(material, pending.url)) {
 		const order = nextChapterOrder(material);
 		const pageProgress = data.pages[pending.url]?.progress;
+			const pageTitle = typeof data.pages[pending.url]?.title === "string" ? data.pages[pending.url].title : "";
 
 		const nextMaterial = {
 			...material,
 			chapters: [
 			...(material.chapters || []),
-			{ url: pending.url, order, progress: clampProgress(pageProgress ?? 0) },
+					{ url: pending.url, order, progress: clampProgress(pageProgress ?? 0), ...(pageTitle ? { title: pageTitle } : {}) },
 			],
 		};
 
@@ -311,6 +317,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return sendResponse({ ok: true });
 	}
 
+	if (type === "setPageFinished") {
+		const url = normalizeUrl(message.url);
+		const finished = message.finished === true;
+		if (!url) return sendResponse({ ok: false, error: "invalid_url" });
+
+		const data = await getAllData();
+		const existing = data.pages[url] || {};
+
+		if (finished) {
+			data.pages[url] = {
+				...existing,
+				status: "finished",
+				progress: 100,
+				ignoreScrollProgress: true,
+				updatedAt: nowUnixSeconds(),
+			};
+		} else {
+			// Unmark finished: allow scroll to update progress again.
+			const next = { ...existing };
+			delete next.status;
+			next.ignoreScrollProgress = false;
+			next.updatedAt = nowUnixSeconds();
+			data.pages[url] = next;
+		}
+
+		await setAllData(data);
+		return sendResponse({ ok: true });
+	}
+
 	if (type === "createMaterial") {
 		const indexUrl = normalizeUrl(message.indexUrl);
 		const title = typeof message.title === "string" ? message.title.trim() : "";
@@ -368,14 +403,101 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 		const order = nextChapterOrder(material);
 		const pageProgress = data.pages[url]?.progress;
+		const pageTitle = typeof data.pages[url]?.title === "string" ? data.pages[url].title : "";
 		data.materials[materialId] = {
 		...material,
 		chapters: [
 			...(material.chapters || []),
-			{ url, order, progress: clampProgress(pageProgress ?? 0) },
+			{ url, order, progress: clampProgress(pageProgress ?? 0), ...(pageTitle ? { title: pageTitle } : {}) },
 		],
 		};
 
+		await setAllData(data);
+		return sendResponse({ ok: true });
+	}
+
+	if (type === "deleteChapter") {
+		const materialId = message.materialId;
+		const url = normalizeUrl(message.url);
+		if (!materialId || !url) return sendResponse({ ok: false, error: "invalid_args" });
+
+		const data = await getAllData();
+		const material = data.materials[materialId];
+		if (!material) return sendResponse({ ok: false, error: "material_not_found" });
+
+		const existing = Array.isArray(material.chapters) ? material.chapters : [];
+		const filtered = existing.filter((c) => c?.url !== url);
+		if (filtered.length === existing.length) return sendResponse({ ok: false, error: "chapter_not_found" });
+
+		// Also delete any quotes that were saved on this chapter URL.
+		const existingBookmarks = Array.isArray(material.bookmarks) ? material.bookmarks : [];
+		let removedQuotesCount = 0;
+		const nextBookmarks = existingBookmarks.filter((b) => {
+			const bUrl = normalizeUrl(b?.url);
+			const remove = bUrl === url;
+			if (remove) removedQuotesCount += 1;
+			return !remove;
+		});
+
+		data.materials[materialId] = { ...material, chapters: normalizeChapters(filtered), bookmarks: nextBookmarks };
+		await setAllData(data);
+		return sendResponse({ ok: true, removedQuotesCount });
+	}
+
+	if (type === "renameChapter") {
+		const materialId = message.materialId;
+		const url = normalizeUrl(message.url);
+		const title = typeof message.title === "string" ? message.title.trim() : "";
+		if (!materialId || !url) return sendResponse({ ok: false, error: "invalid_args" });
+
+		const data = await getAllData();
+		const material = data.materials[materialId];
+		if (!material) return sendResponse({ ok: false, error: "material_not_found" });
+
+		const existing = Array.isArray(material.chapters) ? material.chapters : [];
+		let found = false;
+		const next = existing.map((c) => {
+			if (c?.url !== url) return c;
+			found = true;
+			const base = { ...c };
+			if (title) {
+				base.title = title;
+			} else {
+				delete base.title;
+			}
+			return base;
+		});
+		if (!found) return sendResponse({ ok: false, error: "chapter_not_found" });
+
+		data.materials[materialId] = { ...material, chapters: normalizeChapters(next) };
+		await setAllData(data);
+		return sendResponse({ ok: true });
+	}
+
+	if (type === "moveChapter") {
+		const materialId = message.materialId;
+		const url = normalizeUrl(message.url);
+		const direction = message.direction;
+		if (!materialId || !url) return sendResponse({ ok: false, error: "invalid_args" });
+		if (!['up', 'down'].includes(direction)) return sendResponse({ ok: false, error: "invalid_direction" });
+
+		const data = await getAllData();
+		const material = data.materials[materialId];
+		if (!material) return sendResponse({ ok: false, error: "material_not_found" });
+
+		const sorted = normalizeChapters(material.chapters || []);
+		const idx = sorted.findIndex((c) => c?.url === url);
+		if (idx < 0) return sendResponse({ ok: false, error: "chapter_not_found" });
+
+		const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+		if (swapWith < 0 || swapWith >= sorted.length) return sendResponse({ ok: true });
+
+		const next = [...sorted];
+		const tmp = next[idx];
+		next[idx] = next[swapWith];
+		next[swapWith] = tmp;
+
+		data.materials[materialId] = { ...material, chapters: normalizeChapters(next) };
 		await setAllData(data);
 		return sendResponse({ ok: true });
 	}

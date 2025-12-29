@@ -70,6 +70,10 @@ body {
   	justify-content: space-between;
 }
 
+.list li .row.between > :first-child {
+	min-width: 0;
+}
+
 .label {
 	color: var(--muted);
 	font-size: 12px;
@@ -149,6 +153,7 @@ body {
 	color: var(--muted);
 	font-size: 11px;
 	line-height: 1.25;
+	margin-bottom: 10px;
 }
 
 .footer {
@@ -184,4 +189,12 @@ body.declare-mode #declareForm {
 
 .link {
 	cursor: pointer;
+}
+
+.ellipsis-link {
+	display: block;
+	max-width: 100%;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
