@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Reading Companion",
+  "version": "1.0.0",
+  "description": "Track reading progress, materials/chapters, and save highlights/quotes.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Reading Companion",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

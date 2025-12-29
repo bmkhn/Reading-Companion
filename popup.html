@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Reading Companion</title>
+		<link rel="stylesheet" href="popup.css" />
+	</head>
+	<body>
+		<header class="header">
+			<div class="title">Reading Companion</div>
+			<div id="currentUrl" class="subtitle"></div>
+		</header>
+
+		<main class="main">
+			<section class="card" id="materialSection">
+				<div class="row between">
+					<div>
+						<div class="label">Material</div>
+						<div id="materialTitle" class="value">None</div>
+					</div>
+					<div class="controls">
+						<button id="declareMaterial" class="btn primary">Declare Index</button>
+					</div>
+				</div>
+
+				<div id="declareForm" class="row hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
+					<div class="row" style="margin-bottom: 0;">
+						<input id="declareTitle" class="input" placeholder="Material title" />
+					</div>
+					<div class="row" style="margin-bottom: 0;">
+						<label class="label" for="declareKind" style="min-width: 90px;">Type</label>
+						<select id="declareKind" class="select">
+							<option value="multi">Multi-page</option>
+							<option value="single">Single-page</option>
+						</select>
+					</div>
+					<div class="row between" style="margin-bottom: 0;">
+						<div class="hint">Creates material using the current page URL as index.</div>
+						<div class="controls">
+							<button id="declareCancel" class="btn">Cancel</button>
+							<button id="declareCreate" class="btn primary">Create</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="row" id="materialSelectRow">
+					<label class="label" for="materialSelect">Select material</label>
+					<select id="materialSelect" class="select"></select>
+				</div>
+
+				<div class="row requires-material between" id="materialActionsRow">
+					<div class="label">Actions</div>
+					<div class="controls">
+						<button id="openMaterial" class="btn">Open index</button>
+						<button id="deleteMaterial" class="btn">Delete</button>
+					</div>
+				</div>
+
+				<div class="row" id="resetRow">
+					<button id="resetData" class="btn">Reset local data</button>
+					<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
+				</div>
+			</section>
+
+			<section class="card requires-material" id="singlePageNote">
+				<div class="hint">
+					This material is marked as <strong>single-page</strong>. Multi-page features (chapters/quotes) are hidden for now.
+				</div>
+			</section>
+
+			<section class="card requires-material" id="multiPageSection">
+				<div class="row">
+					<div class="label">Page status</div>
+					<div class="controls">
+						<button id="statusToRead" class="btn">To Read</button>
+						<button id="statusReading" class="btn">Reading</button>
+						<button id="statusFinished" class="btn">Finished</button>
+					</div>
+				</div>
+				<div class="row">
+					<div class="label">Page progress</div>
+					<div class="value"><span id="pageProgress">—</span>%</div>
+				</div>
+
+				<div class="row">
+					<label class="label">
+						<input id="ignoreScroll" type="checkbox" />
+						Ignore scroll progress
+					</label>
+				</div>
+
+				<hr class="sep" />
+
+				<div class="row">
+					<button id="addChapter" class="btn">Add current page as chapter</button>
+				</div>
+
+				<div class="row between">
+					<div class="label">Chapters</div>
+					<div class="hint" id="chaptersPageHint"></div>
+				</div>
+
+				<div class="row" id="chaptersGoRow">
+					<input id="chaptersPageInput" class="input" placeholder="Go to chapter page #" />
+					<button id="chaptersGo" class="btn">Go</button>
+				</div>
+
+				<ul id="chapters" class="list"></ul>
+
+				<div class="row" id="chaptersPager" aria-label="Chapters pagination">
+					<button id="chaptersFirst" class="btn small">First</button>
+					<button id="chaptersPrev" class="btn small">Prev</button>
+					<div id="chaptersPages" class="controls"></div>
+					<button id="chaptersNext" class="btn small">Next</button>
+					<button id="chaptersLast" class="btn small">Last</button>
+				</div>
+
+				<hr class="sep" />
+
+				<div class="row between">
+					<div class="label">Quotes</div>
+					<div class="controls">
+						<button id="addQuote" class="btn">Add quote</button>
+					</div>
+				</div>
+				<ul id="bookmarks" class="list"></ul>
+			</section>
+
+			<section class="card footer">
+				<div id="statusLine" class="hint"></div>
+			</section>
+		</main>
+
+		<script src="popup.js"></script>
+	</body>
+</html>

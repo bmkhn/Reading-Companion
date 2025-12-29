@@ -1,0 +1,187 @@
+:root {
+	--bg: #0b0f17;
+	--panel: #121a28;
+	--panel2: #0f1623;
+	--text: #e7eefc;
+	--muted: #a9b7d4;
+	--border: rgba(231, 238, 252, 0.12);
+	--accent: #4f8cff;
+}
+
+* {
+  	box-sizing: border-box;
+}
+
+body {
+	width: 380px;
+	margin: 0;
+	font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+	background: var(--bg);
+	color: var(--text);
+}
+
+.header {
+	padding: 12px 12px 10px;
+	border-bottom: 1px solid var(--border);
+	background: var(--panel2);
+}
+
+.title {
+	font-weight: 700;
+	font-size: 14px;
+}
+
+.subtitle {
+	margin-top: 4px;
+	color: var(--muted);
+	font-size: 11px;
+	line-height: 1.2;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.main {
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.card {
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 10px;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.row:last-child {
+  	margin-bottom: 0;
+}
+
+.between {
+  	justify-content: space-between;
+}
+
+.label {
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.value {
+  	font-size: 13px;
+}
+
+.controls {
+	display: flex;
+	gap: 6px;
+}
+
+.btn {
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--text);
+	padding: 7px 9px;
+	border-radius: 8px;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.btn.small {
+	padding: 4px 7px;
+	border-radius: 7px;
+	font-size: 11px;
+}
+
+.btn:hover {
+ 	 border-color: rgba(231, 238, 252, 0.22);
+}
+
+.btn.primary {
+	background: rgba(79, 140, 255, 0.18);
+	border-color: rgba(79, 140, 255, 0.45);
+}
+
+.input, .select {
+	flex: 1;
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 7px 9px;
+	color: var(--text);
+	font-size: 12px;
+}
+
+.select {
+ 	 max-width: 210px;
+}
+
+.list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.list li {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 8px;
+	background: rgba(0, 0, 0, 0.08);
+}
+
+.small {
+	color: var(--muted);
+	font-size: 11px;
+	margin-top: 4px;
+}
+
+.hint {
+	color: var(--muted);
+	font-size: 11px;
+	line-height: 1.25;
+}
+
+.footer {
+  	padding: 8px 10px;
+}
+
+.hidden {
+  	display: none;
+}
+
+/* Declare mode: show only the declare form (plus header). */
+body.declare-mode .main > section {
+	display: none;
+}
+
+body.declare-mode #materialSection {
+	display: block;
+}
+
+body.declare-mode #materialSection > .row:not(#declareForm) {
+	display: none;
+}
+
+body.declare-mode #declareForm {
+	display: flex;
+}
+
+.sep {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 10px 0;
+}
+
+.link {
+	cursor: pointer;
+}
