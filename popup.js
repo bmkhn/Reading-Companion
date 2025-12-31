@@ -150,14 +150,26 @@ function setCollapsed(key, collapsed) {
 	if (key === "material") {
 		const body = el("materialBody");
 		if (body) body.classList.toggle("hidden", collapsed);
+		const header = el("materialHeader");
+		if (header) header.setAttribute("aria-expanded", collapsed ? "false" : "true");
 	}
 	if (key === "chapters") {
 		const body = el("chaptersBody");
 		if (body) body.classList.toggle("hidden", collapsed);
+		const header = el("chaptersHeader");
+		if (header) header.setAttribute("aria-expanded", collapsed ? "false" : "true");
 	}
 	if (key === "quotes") {
 		const body = el("quotesBody");
 		if (body) body.classList.toggle("hidden", collapsed);
+		const header = el("quotesHeader");
+		if (header) header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+	}
+	if (key === "data") {
+		const body = el("dataBody");
+		if (body) body.classList.toggle("hidden", collapsed);
+		const header = el("dataHeader");
+		if (header) header.setAttribute("aria-expanded", collapsed ? "false" : "true");
 	}
 }
 
@@ -166,11 +178,21 @@ function initCollapsibles() {
 		{ key: "material", headerId: "materialHeader" },
 		{ key: "chapters", headerId: "chaptersHeader" },
 		{ key: "quotes", headerId: "quotesHeader" },
+		{ key: "data", headerId: "dataHeader" },
 	];
 
 	for (const it of items) {
 		setCollapsed(it.key, isCollapsed(it.key));
-		safeOn(it.headerId, "click", () => {
+		const header = el(it.headerId);
+		if (header) {
+			header.setAttribute("role", "button");
+			header.setAttribute("tabindex", "0");
+		}
+		safeOn(it.headerId, "click", () => setCollapsed(it.key, !isCollapsed(it.key)));
+		safeOn(it.headerId, "keydown", (e) => {
+			if (!(e instanceof KeyboardEvent)) return;
+			if (e.key !== "Enter" && e.key !== " ") return;
+			e.preventDefault();
 			setCollapsed(it.key, !isCollapsed(it.key));
 		});
 	}
@@ -817,6 +839,61 @@ async function exportAllData() {
 	}
 }
 
+async function readJsonFile(file) {
+	return await new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onerror = () => reject(new Error("read_failed"));
+		reader.onload = () => resolve(String(reader.result || ""));
+		reader.readAsText(file);
+	});
+}
+
+async function importAllDataFromFile(file) {
+	if (!file) return;
+	const typed = prompt("Type IMPORT to replace all saved extension data with this file:", "");
+	if (typed === null) return;
+	if (typed !== "IMPORT") {
+		setStatusLine("Not imported.");
+		return;
+	}
+
+	setStatusLine("Importing...");
+	let text;
+	try {
+		text = await readJsonFile(file);
+	} catch {
+		setStatusLine("Failed to read file.");
+		return;
+	}
+
+	let parsed;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		setStatusLine("Invalid JSON.");
+		return;
+	}
+
+	const res = await bg({ type: "importData", payload: parsed });
+	if (!res?.ok) {
+		setStatusLine(`Import failed (${res?.error || "unknown"}).`);
+		return;
+	}
+
+	lastSelectedMaterialId = "";
+	chaptersPage = 1;
+	quotesPage = 1;
+	setStatusLine("Import complete.");
+	await refreshUI();
+}
+
+async function chooseImportFile() {
+	const input = el("importFile");
+	if (!(input instanceof HTMLInputElement)) return;
+	input.value = "";
+	input.click();
+}
+
 async function resetLocalData() {
 	const typed = prompt("Type RESET to clear all saved extension data:", "");
 	if (typed === null) return;
@@ -1114,6 +1191,14 @@ function bind() {
 	safeOn("declareCancel", "click", cancelDeclare);
 	safeOn("declareCreate", "click", createDeclaredMaterial);
 	safeOn("exportData", "click", exportAllData);
+	safeOn("importData", "click", chooseImportFile);
+	safeOn("importFile", "change", (e) => {
+		const target = e.target;
+		if (!(target instanceof HTMLInputElement)) return;
+		const file = target.files?.[0];
+		if (!file) return;
+		importAllDataFromFile(file);
+	});
 	safeOn("resetData", "click", resetLocalData);
 
 	safeOn("materialSelect", "change", () => {

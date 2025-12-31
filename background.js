@@ -242,6 +242,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	(async () => {
 	const type = message?.type;
 
+	if (type === "importData") {
+		const payload = message?.payload;
+		// Accept either the exact export shape { exportedAt, data } or raw { materials, pages, collections }.
+		const maybeData = payload && typeof payload === "object" && payload.data && typeof payload.data === "object"
+			? payload.data
+			: payload;
+
+		if (!maybeData || typeof maybeData !== "object") {
+			return sendResponse({ ok: false, error: "invalid_payload" });
+		}
+
+		const next = {
+			materials: (maybeData.materials && typeof maybeData.materials === "object") ? maybeData.materials : {},
+			pages: (maybeData.pages && typeof maybeData.pages === "object") ? maybeData.pages : {},
+			collections: (maybeData.collections && typeof maybeData.collections === "object") ? maybeData.collections : {},
+		};
+
+		// Basic shape checks to avoid obvious corruption.
+		if (Array.isArray(next.materials) || Array.isArray(next.pages) || Array.isArray(next.collections)) {
+			return sendResponse({ ok: false, error: "invalid_shape" });
+		}
+
+		// Migrate ids after import, and store.
+		migrateBookmarkIds(next);
+		await setAllData(next);
+		return sendResponse({ ok: true });
+	}
+
 	if (type === "pageProgress") {
 		const url = normalizeUrl(message.url);
 		if (!url) return sendResponse({ ok: false, error: "invalid_url" });

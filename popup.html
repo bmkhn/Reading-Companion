@@ -14,7 +14,7 @@
 
 		<main class="main">
 			<section class="card" id="materialSection">
-				<div class="row between">
+				<div class="row between" style="margin-bottom: 0;">
 					<div id="materialHeader" class="collapsible-header">
 						<div class="label">Reading Material</div>
 						<div id="materialTitle" class="value">None</div>
@@ -24,7 +24,7 @@
 					</div>
 				</div>
 
-				<div id="materialBody">
+				<div id="materialBody" style="margin-top: 10px;">
 					<div id="declareForm" class="row hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
 						<div class="row" style="margin-bottom: 0;">
 							<input id="declareTitle" class="input" placeholder="Material title" />
@@ -58,7 +58,6 @@
 						</div>
 					</div>
 				</div>
-
 			</section>
 
 			<section class="card requires-material" id="singlePageNote">
@@ -86,7 +85,7 @@
 			</section>
 
 			<section class="card requires-material requires-multi" id="chaptersSection">
-				<div class="row between requires-multi">
+				<div class="row between requires-multi" style="margin-bottom: 0;">
 					<div id="chaptersHeader" class="label collapsible-header">Chapters</div>
 					<div class="controls" style="align-items: center; gap: 8px;">
 						<div class="hint" id="chaptersPageHint"></div>
@@ -95,7 +94,7 @@
 					</div>
 				</div>
 
-				<div id="chaptersBody">
+				<div id="chaptersBody" style="margin-top: 10px;">
 					<div class="row requires-multi" id="chaptersGoRow">
 						<input id="chaptersPageInput" class="input" placeholder="Go to chapter page #" />
 						<button id="chaptersGo" class="btn">Go</button>
@@ -114,7 +113,7 @@
 			</section>
 
 			<section class="card requires-material" id="quotesSection">
-				<div class="row between">
+				<div class="row between" style="margin-bottom: 0;">
 					<div id="quotesHeader" class="label collapsible-header">Quotes</div>
 					<div class="controls">
 						<div class="hint" id="quotesPageHint"></div>
@@ -122,7 +121,7 @@
 					</div>
 				</div>
 
-				<div id="quotesBody">
+				<div id="quotesBody" style="margin-top: 10px;">
 					<ul id="bookmarks" class="list"></ul>
 
 					<div class="row" id="quotesGoRow">
@@ -140,15 +139,25 @@
 				</div>
 			</section>
 
-			<section class="card footer">
-				<div id="statusLine" class="hint"></div>
-				<div class="row" id="exportRow">
-					<button id="exportData" class="btn">Export data</button>
-					<div class="hint" style="flex: 1;">Downloads a JSON backup of everything saved.</div>
+			<section class="card" id="dataSection">
+				<div class="row between" style="margin-bottom: 0;">
+					<div id="dataHeader" class="label collapsible-header">Data</div>
 				</div>
-				<div class="row" id="resetRow" style="margin-bottom: 0;">
-					<button id="resetData" class="btn">Delete all saved data</button>
-					<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
+
+				<div id="dataBody" style="margin-top: 10px;">
+					<div class="row" id="importRow">
+						<input id="importFile" type="file" accept="application/json" class="hidden" />
+						<button id="importData" class="btn">Import data</button>
+						<div class="hint" style="flex: 1;">Imports a JSON file previously exported.</div>
+					</div>
+					<div class="row" id="exportRow">
+						<button id="exportData" class="btn">Export data</button>
+						<div class="hint" style="flex: 1;">Downloads a JSON backup of everything saved.</div>
+					</div>
+					<div class="row" id="resetRow" style="margin-bottom: 0;">
+						<button id="resetData" class="btn">Delete all saved data</button>
+						<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
+					</div>
 				</div>
 			</section>
 		</main>

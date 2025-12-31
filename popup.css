@@ -108,6 +108,11 @@ body {
  	 border-color: rgba(231, 238, 252, 0.22);
 }
 
+.btn:focus-visible {
+	outline: 2px solid rgba(79, 140, 255, 0.55);
+	outline-offset: 2px;
+}
+
 .btn.primary {
 	background: rgba(79, 140, 255, 0.18);
 	border-color: rgba(79, 140, 255, 0.45);
@@ -189,10 +194,37 @@ body.declare-mode #declareForm.hidden {
 .collapsible-header {
 	cursor: pointer;
 	user-select: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-radius: 8px;
+	border: 1px solid transparent;
+	background: rgba(0, 0, 0, 0.06);
 }
 
 .collapsible-header:hover {
-	text-decoration: underline;
+	border-color: rgba(231, 238, 252, 0.22);
+}
+
+.collapsible-header::before {
+	content: "▾";
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1;
+}
+
+.collapsible-header[aria-expanded="false"]::before {
+	content: "▸";
+}
+
+.collapsible-header[aria-expanded="false"] {
+	background: rgba(0, 0, 0, 0.02);
+}
+
+.collapsible-header:focus-visible {
+	outline: 2px solid rgba(79, 140, 255, 0.55);
+	outline-offset: 2px;
 }
 
 .list li:hover {
