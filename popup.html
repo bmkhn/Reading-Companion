@@ -15,45 +15,47 @@
 		<main class="main">
 			<section class="card" id="materialSection">
 				<div class="row between">
-					<div>
-						<div class="label">Material</div>
+					<div id="materialHeader" class="collapsible-header">
+						<div class="label">Reading Material</div>
 						<div id="materialTitle" class="value">None</div>
 					</div>
 					<div class="controls">
-						<button id="declareMaterial" class="btn primary">Declare index</button>
+						<button id="declareMaterial" class="btn primary">Add material</button>
 					</div>
 				</div>
 
-				<div id="declareForm" class="row hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
-					<div class="row" style="margin-bottom: 0;">
-						<input id="declareTitle" class="input" placeholder="Material title" />
-					</div>
-					<div class="row" style="margin-bottom: 0;">
-						<label class="label" for="declareKind" style="min-width: 90px;">Type</label>
-						<select id="declareKind" class="select">
-							<option value="multi">Multi-page</option>
-							<option value="single">Single-page</option>
-						</select>
-					</div>
-					<div class="row between" style="margin-bottom: 0;">
-						<div class="hint">Creates material using the current page URL as index.</div>
-						<div class="controls">
-							<button id="declareCancel" class="btn">Cancel</button>
-							<button id="declareCreate" class="btn primary">Create</button>
+				<div id="materialBody">
+					<div id="declareForm" class="row hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
+						<div class="row" style="margin-bottom: 0;">
+							<input id="declareTitle" class="input" placeholder="Material title" />
+						</div>
+						<div class="row" style="margin-bottom: 0;">
+							<label class="label" for="declareKind" style="min-width: 90px;">Type</label>
+							<select id="declareKind" class="select">
+								<option value="multi">Multi-page</option>
+								<option value="single">Single-page</option>
+							</select>
+						</div>
+						<div class="row between" style="margin-bottom: 0;">
+							<div class="hint">Creates material using the current page URL as index.</div>
+							<div class="controls">
+								<button id="declareCancel" class="btn">Cancel</button>
+								<button id="declareCreate" class="btn primary">Create</button>
+							</div>
 						</div>
 					</div>
-				</div>
 
-				<div class="row" id="materialSelectRow">
-					<label class="label" for="materialSelect">Select material</label>
-					<select id="materialSelect" class="select"></select>
-				</div>
+					<div class="row" id="materialSelectRow">
+						<label class="label" for="materialSelect">Select material</label>
+						<select id="materialSelect" class="select"></select>
+					</div>
 
-				<div class="row requires-material between" id="materialActionsRow">
-					<div class="label">Actions</div>
-					<div class="controls">
-						<button id="openMaterial" class="btn">Open index</button>
-						<button id="deleteMaterial" class="btn">Delete</button>
+					<div class="row requires-material between" id="materialActionsRow">
+						<div class="label">Actions</div>
+						<div class="controls">
+							<button id="openMaterial" class="btn">Open</button>
+							<button id="deleteMaterial" class="btn">Delete</button>
+						</div>
 					</div>
 				</div>
 
@@ -61,71 +63,91 @@
 
 			<section class="card requires-material" id="singlePageNote">
 				<div class="hint">
-					This material is marked as <strong>single-page</strong>. Multi-page features (chapters/quotes) are hidden for now.
+					This material is marked as <strong>single-page</strong>. Chapters are hidden.
 				</div>
 			</section>
 
-			<section class="card requires-material" id="multiPageSection">
-				<div class="row requires-chapter">
+			<section class="card requires-material" id="progressSection">
+				<div class="row requires-page">
 					<div class="label">Progress</div>
 					<div class="value"><span id="pageProgress">—</span>%</div>
 					<div class="controls" style="margin-left: auto;">
 						<button id="markFinished" class="btn">Mark finished</button>
-						<button id="goToProgress" class="btn">Go to progress</button>
+						<button id="goToProgress" class="btn">Jump to progress</button>
 					</div>
 				</div>
 
-				<div class="row requires-chapter">
+				<div class="row requires-page">
 					<label class="label">
 						<input id="ignoreScroll" type="checkbox" />
-						Ignore scroll progress
+						Lock progress
 					</label>
 				</div>
+			</section>
 
-				<hr class="sep requires-chapter" />
-
-				<div class="row">
-					<button id="addChapter" class="btn">Add current page as chapter</button>
-				</div>
-
-				<div class="row between">
-					<div class="label">Chapters</div>
+			<section class="card requires-material requires-multi" id="chaptersSection">
+				<div class="row between requires-multi">
+					<div id="chaptersHeader" class="label collapsible-header">Chapters</div>
 					<div class="controls" style="align-items: center; gap: 8px;">
 						<div class="hint" id="chaptersPageHint"></div>
-						<button id="goToLatestChapter" class="btn small requires-chapter">Go to latest chapter</button>
+						<button id="addChapter" class="btn small requires-multi">Add current page</button>
+						<button id="goToLatestChapter" class="btn small requires-multi requires-chapter">Go to latest chapter</button>
 					</div>
 				</div>
 
-				<div class="row" id="chaptersGoRow">
-					<input id="chaptersPageInput" class="input" placeholder="Go to chapter page #" />
-					<button id="chaptersGo" class="btn">Go</button>
+				<div id="chaptersBody">
+					<div class="row requires-multi" id="chaptersGoRow">
+						<input id="chaptersPageInput" class="input" placeholder="Go to chapter page #" />
+						<button id="chaptersGo" class="btn">Go</button>
+					</div>
+
+					<ul id="chapters" class="list requires-multi"></ul>
+
+					<div class="row requires-multi" id="chaptersPager" aria-label="Chapters pagination">
+						<button id="chaptersFirst" class="btn small">First</button>
+						<button id="chaptersPrev" class="btn small">Prev</button>
+						<div id="chaptersPages" class="controls"></div>
+						<button id="chaptersNext" class="btn small">Next</button>
+						<button id="chaptersLast" class="btn small">Last</button>
+					</div>
 				</div>
+			</section>
 
-				<ul id="chapters" class="list"></ul>
-
-				<div class="row" id="chaptersPager" aria-label="Chapters pagination">
-					<button id="chaptersFirst" class="btn small">First</button>
-					<button id="chaptersPrev" class="btn small">Prev</button>
-					<div id="chaptersPages" class="controls"></div>
-					<button id="chaptersNext" class="btn small">Next</button>
-					<button id="chaptersLast" class="btn small">Last</button>
-				</div>
-
-				<hr class="sep" />
-
+			<section class="card requires-material" id="quotesSection">
 				<div class="row between">
-					<div class="label">Quotes</div>
+					<div id="quotesHeader" class="label collapsible-header">Quotes</div>
 					<div class="controls">
+						<div class="hint" id="quotesPageHint"></div>
 						<button id="addQuote" class="btn">Add quote</button>
 					</div>
 				</div>
-				<ul id="bookmarks" class="list"></ul>
+
+				<div id="quotesBody">
+					<ul id="bookmarks" class="list"></ul>
+
+					<div class="row" id="quotesGoRow">
+						<input id="quotesPageInput" class="input" placeholder="Go to quote page #" />
+						<button id="quotesGo" class="btn">Go</button>
+					</div>
+
+					<div class="row" id="quotesPager" aria-label="Quotes pagination">
+						<button id="quotesFirst" class="btn small">First</button>
+						<button id="quotesPrev" class="btn small">Prev</button>
+						<div id="quotesPages" class="controls"></div>
+						<button id="quotesNext" class="btn small">Next</button>
+						<button id="quotesLast" class="btn small">Last</button>
+					</div>
+				</div>
 			</section>
 
 			<section class="card footer">
 				<div id="statusLine" class="hint"></div>
+				<div class="row" id="exportRow">
+					<button id="exportData" class="btn">Export data</button>
+					<div class="hint" style="flex: 1;">Downloads a JSON backup of everything saved.</div>
+				</div>
 				<div class="row" id="resetRow" style="margin-bottom: 0;">
-					<button id="resetData" class="btn">Reset local data</button>
+					<button id="resetData" class="btn">Delete all saved data</button>
 					<div class="hint" style="flex: 1;">Clears all saved materials/pages/quotes for this extension.</div>
 				</div>
 			</section>

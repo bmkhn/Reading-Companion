@@ -12,9 +12,13 @@
 // already part of that material.
 let lastSelectedMaterialId = "";
 let lastSelectedChapterUrl = "";
+let lastSelectedPageUrl = "";
 const lastSelectedChapterByMaterial = Object.create(null);
 let chaptersPage = 1;
 const CHAPTERS_PER_PAGE = 5;
+
+let quotesPage = 1;
+const QUOTES_PER_PAGE = 3;
 
 let pendingDeclareIndexUrl = "";
 
@@ -59,11 +63,15 @@ async function bg(message) {
 async function getSelectionFromTab(tabId) {
 	try {
 		const response = await chrome.tabs.sendMessage(tabId, { type: "getSelection" });
-		if (!response?.ok) return "";
-		return (response.text || "").trim();
+		if (!response?.ok) return { text: "", contextBefore: "", contextAfter: "" };
+		return {
+			text: String(response.text || "").trim(),
+			contextBefore: String(response.contextBefore || ""),
+			contextAfter: String(response.contextAfter || ""),
+		};
 	} catch {
 		// If the content script wasn't injected (rare) or tab doesn't allow it.
-		return "";
+		return { text: "", contextBefore: "", contextAfter: "" };
 	}
 }
 
@@ -99,14 +107,73 @@ function setRequiresChapterVisible(hasChapter) {
 	}
 }
 
+function setRequiresPageVisible(hasPage) {
+	const gated = document.querySelectorAll(".requires-page");
+	for (const node of gated) {
+		node.classList.toggle("hidden", !hasPage);
+	}
+}
+
+function setRequiresMultiVisible(isMulti) {
+	const gated = document.querySelectorAll(".requires-multi");
+	for (const node of gated) {
+		node.classList.toggle("hidden", !isMulti);
+	}
+}
+
 function setMultiPageVisible(isMulti) {
-	const multi = el("multiPageSection");
 	const singleNote = el("singlePageNote");
+	if (!singleNote) return;
+	// Show a small note for single-page materials.
+	singleNote.classList.toggle("hidden", Boolean(isMulti));
+}
 
-	if (!multi || !singleNote) return;
+function collapseKey(key) {
+	return `rc_collapsed_${key}`;
+}
 
-	multi.classList.toggle("hidden", !isMulti);
-	singleNote.classList.toggle("hidden", isMulti);
+function isCollapsed(key) {
+	try {
+		return localStorage.getItem(collapseKey(key)) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function setCollapsed(key, collapsed) {
+	try {
+		localStorage.setItem(collapseKey(key), collapsed ? "1" : "0");
+	} catch {
+		// ignore
+	}
+
+	if (key === "material") {
+		const body = el("materialBody");
+		if (body) body.classList.toggle("hidden", collapsed);
+	}
+	if (key === "chapters") {
+		const body = el("chaptersBody");
+		if (body) body.classList.toggle("hidden", collapsed);
+	}
+	if (key === "quotes") {
+		const body = el("quotesBody");
+		if (body) body.classList.toggle("hidden", collapsed);
+	}
+}
+
+function initCollapsibles() {
+	const items = [
+		{ key: "material", headerId: "materialHeader" },
+		{ key: "chapters", headerId: "chaptersHeader" },
+		{ key: "quotes", headerId: "quotesHeader" },
+	];
+
+	for (const it of items) {
+		setCollapsed(it.key, isCollapsed(it.key));
+		safeOn(it.headerId, "click", () => {
+			setCollapsed(it.key, !isCollapsed(it.key));
+		});
+	}
 }
 
 function getMaterialKind(material) {
@@ -256,11 +323,13 @@ async function refreshUI() {
 
 	const isMulti = Boolean(selectedMaterialId) && getMaterialKind(selectedMaterial) === "multi";
 	setMultiPageVisible(isMulti);
+	setRequiresMultiVisible(isMulti);
 
-	// Keep chapters pager in range
+	// Keep pagers in range
 	if (!isMulti) {
 		chaptersPage = 1;
 	}
+	quotesPage = Math.max(1, quotesPage);
 
 	// Chapters list (multi-page materials only)
 	const chaptersEl = el("chapters");
@@ -292,6 +361,20 @@ async function refreshUI() {
 	lastSelectedChapterUrl = selectedChapterUrl;
 	setRequiresChapterVisible(Boolean(selectedChapterUrl));
 
+	// Selected page URL drives progress/finished/lock/jump-to-progress.
+	// - Multi-page: selected chapter
+	// - Single-page: material indexUrl
+	let selectedPageUrl = "";
+	if (selectedMaterialId && selectedMaterial) {
+		if (isMulti) {
+			selectedPageUrl = selectedChapterUrl;
+		} else {
+			selectedPageUrl = normalizeUrl(selectedMaterial.indexUrl) || "";
+		}
+	}
+	lastSelectedPageUrl = selectedPageUrl;
+	setRequiresPageVisible(Boolean(selectedPageUrl));
+
 	// Ensure the selected (latest) chapter is visible by default.
 	if (selectedChapterUrl && isMulti) {
 		const idx = chaptersAll.findIndex((c) => c.url === selectedChapterUrl);
@@ -307,27 +390,27 @@ async function refreshUI() {
 	}
 
 	const selectedChapter = selectedChapterUrl ? chapterByUrl(chaptersAll, selectedChapterUrl) : null;
-	const selectedPage = selectedChapterUrl ? (pages[selectedChapterUrl] || null) : null;
-	const selectedProgress = selectedChapterUrl
-		? clampProgress(selectedPage?.progress ?? selectedChapter?.progress ?? 0)
+	const selectedPage = selectedPageUrl ? (pages[selectedPageUrl] || null) : null;
+	const selectedProgress = selectedPageUrl
+		? clampProgress(selectedPage?.progress ?? (isMulti ? (selectedChapter?.progress ?? 0) : 0))
 		: null;
 
-	if (selectedChapterUrl) {
+	if (selectedPageUrl) {
 		el("pageProgress").textContent = String(selectedProgress ?? 0);
 	} else {
 		el("pageProgress").textContent = "—";
 	}
 
-	const isFinished = selectedChapterUrl && selectedPage?.status === "finished";
+	const isFinished = selectedPageUrl && selectedPage?.status === "finished";
 	if (markBtn) markBtn.textContent = isFinished ? "Unmark finished" : "Mark finished";
-	if (markBtn) markBtn.disabled = !selectedChapterUrl;
-	if (goBtn) goBtn.disabled = !selectedChapterUrl;
+	if (markBtn) markBtn.disabled = !selectedPageUrl;
+	if (goBtn) goBtn.disabled = !selectedPageUrl;
 
 	// Ignore scroll checkbox follows selected chapter.
 	const ignoreScroll = el("ignoreScroll");
 	if (ignoreScroll) {
 		ignoreScroll.checked = Boolean(selectedPage?.ignoreScrollProgress);
-		ignoreScroll.disabled = !selectedChapterUrl;
+		ignoreScroll.disabled = !selectedPageUrl;
 	}
 	const totalChapterPages = Math.max(1, Math.ceil(chaptersAll.length / CHAPTERS_PER_PAGE));
 	chaptersPage = Math.max(1, Math.min(totalChapterPages, chaptersPage));
@@ -368,7 +451,7 @@ async function refreshUI() {
 					<div>
 						<strong>Chapter ${escapeHtml(String(Number(c.order) || "?"))}</strong>${isSelected ? ` <span class="small">(selected)</span>` : ""}
 						<div class="small">${selectedChapterUrl && c.url === selectedChapterUrl ? escapeHtml(String(selectedProgress ?? clampProgress(c.progress ?? 0))) : escapeHtml(String(clampProgress(c.progress ?? 0)))}%</div>
-						<a class="small link ellipsis-link">${escapeHtml(shortUrl)}</a>
+						<a class="small link ellipsis-link" data-action="open-chapter" data-url="${escapeHtml(c.url)}">${escapeHtml(shortUrl)}</a>
 					</div>
 					<div class="controls" style="flex-direction: column; align-items: flex-end; gap: 6px;">
 						<button class="btn small" data-action="select-chapter" data-url="${escapeHtml(c.url)}">Select</button>
@@ -389,23 +472,69 @@ async function refreshUI() {
 	// Quotes list (stored in material.bookmarks for now)
 	const bookmarksEl = el("bookmarks");
 	bookmarksEl.innerHTML = "";
-	if (selectedMaterial?.bookmarks?.length) {
-		for (const b of selectedMaterial.bookmarks.slice(0, 25)) {
+	const allQuotes = Array.isArray(selectedMaterial?.bookmarks) ? selectedMaterial.bookmarks : [];
+	const totalQuotePages = Math.max(1, Math.ceil(allQuotes.length / QUOTES_PER_PAGE));
+	quotesPage = Math.max(1, Math.min(totalQuotePages, quotesPage));
+	const showQuotePagination = allQuotes.length > QUOTES_PER_PAGE;
+
+	const quotesPager = el("quotesPager");
+	if (quotesPager) quotesPager.classList.toggle("hidden", !showQuotePagination);
+	const quotesGoRow = el("quotesGoRow");
+	if (quotesGoRow) quotesGoRow.classList.toggle("hidden", !showQuotePagination);
+	const quotesPageHint = el("quotesPageHint");
+	if (quotesPageHint) {
+		quotesPageHint.textContent = showQuotePagination ? `Page ${quotesPage} / ${totalQuotePages}` : "";
+	}
+
+	if (showQuotePagination) {
+		renderQuotesPager(totalQuotePages, quotesPage);
+	} else {
+		const container = el("quotesPages");
+		if (container) container.innerHTML = "";
+	}
+
+	const quoteStart = (quotesPage - 1) * QUOTES_PER_PAGE;
+	const quoteItems = allQuotes.slice(quoteStart, quoteStart + QUOTES_PER_PAGE);
+
+	const indexUrl = selectedMaterial ? normalizeUrl(selectedMaterial.indexUrl) : "";
+	const chapterOrderByUrl = isMulti
+		? new Map(chaptersAll.map((c) => [c.url, Number(c.order) || 0]))
+		: null;
+
+	if (quoteItems.length) {
+		for (const b of quoteItems) {
 			const li = document.createElement("li");
 			const type = "quote";
 			const when = formatTimestamp(b.timestamp);
 			const excerpt = (b.text || "").length > 180 ? b.text.slice(0, 180) + "…" : (b.text || "");
 			const shortUrl = (b.url || "").length > 64 ? b.url.slice(0, 64) + "…" : (b.url || "");
+			const quoteUrl = normalizeUrl(b.url);
 			const bookmarkId = typeof b.id === "string" ? b.id : "";
 			const deleteAttrs = `data-action="delete-bookmark" data-bookmark-id="${escapeHtml(bookmarkId)}" data-bookmark-url="${escapeHtml(b.url || "")}" data-bookmark-ts="${escapeHtml(String(b.timestamp || 0))}" data-bookmark-text="${escapeHtml(String(b.text || ""))}"`;
+			const openAttrs = `data-action="open-quote" data-quote-url="${escapeHtml(b.url || "")}" data-quote-id="${escapeHtml(String(bookmarkId || ""))}" data-quote-text="${escapeHtml(String(b.text || ""))}" data-quote-before="${escapeHtml(String(b.contextBefore || ""))}" data-quote-after="${escapeHtml(String(b.contextAfter || ""))}"`;
+
+			let sourceLabel = "";
+			if (isMulti) {
+				const chapterOrder = quoteUrl && chapterOrderByUrl ? chapterOrderByUrl.get(quoteUrl) : null;
+				if (typeof chapterOrder === "number" && chapterOrder > 0) {
+					sourceLabel = `Chapter ${chapterOrder}`;
+				} else if (quoteUrl && indexUrl && quoteUrl === indexUrl) {
+					sourceLabel = "Index";
+				} else {
+					sourceLabel = "Other page";
+				}
+			}
 
 			li.innerHTML = `
 				<div class="row between" style="margin-bottom: 0;">
-					<div><strong>${escapeHtml(type)}</strong>${when ? ` <span class="small">(${escapeHtml(when)})</span>` : ""}</div>
+					<div>
+						${sourceLabel ? `<span class="small">From ${escapeHtml(sourceLabel)}</span>` : ""}
+						${when ? ` <span class="small">(${escapeHtml(when)})</span>` : ""}
+					</div>
 					<button class="btn small" ${deleteAttrs}>Delete</button>
 				</div>
 				<div>${escapeHtml(excerpt)}</div>
-				<div class="small">${escapeHtml(shortUrl)}</div>
+				<a class="small link ellipsis-link" ${openAttrs}>${escapeHtml(shortUrl)}</a>
 			`;
 			bookmarksEl.appendChild(li);
 		}
@@ -419,14 +548,19 @@ async function refreshUI() {
 
 	// Enable/disable buttons depending on context.
 	el("addChapter").disabled = !selectedMaterialId || !url || !isMulti;
-	el("addQuote").disabled = !selectedMaterialId || !url || !isMulti;
+	// Multi-page: allow quotes from the current tab (usually a chapter).
+	// Single-page: allow quotes only when you're on the index page.
+	const allowQuote = Boolean(selectedMaterialId) && Boolean(url) && (
+		(isMulti) || (!isMulti && selectedPageUrl && url === selectedPageUrl)
+	);
+	el("addQuote").disabled = !allowQuote;
 	// ignoreScroll/markFinished/goToProgress are handled above (selectedChapterUrl)
 }
 
 async function toggleFinished() {
-	const url = lastSelectedChapterUrl;
+	const url = lastSelectedPageUrl;
 	if (!url) {
-		setStatusLine("No chapter selected.");
+		setStatusLine("No page selected.");
 		return;
 	}
 
@@ -447,9 +581,9 @@ async function toggleFinished() {
 }
 
 async function goToSelectedProgress() {
-	const url = lastSelectedChapterUrl;
+	const url = lastSelectedPageUrl;
 	if (!url) {
-		setStatusLine("No chapter selected.");
+		setStatusLine("No page selected.");
 		return;
 	}
 
@@ -506,9 +640,43 @@ async function goToSelectedProgress() {
 
 	try {
 		await chrome.tabs.sendMessage(tabId, { type: "scrollToProgress", progress });
+		await chrome.tabs.sendMessage(tabId, { type: "refreshHighlights" });
 		setStatusLine(`Scrolled to ${progress}%.`);
 	} catch {
 		setStatusLine("Opened, but couldn't scroll (content script not ready). Try again.");
+	}
+}
+
+function renderQuotesPager(totalPages, currentPage) {
+	const container = el("quotesPages");
+	if (!container) return;
+	container.innerHTML = "";
+
+	const firstBtn = el("quotesFirst");
+	const prevBtn = el("quotesPrev");
+	const nextBtn = el("quotesNext");
+	const lastBtn = el("quotesLast");
+
+	const canGoBack = currentPage > 1;
+	const canGoForward = currentPage < totalPages;
+
+	if (firstBtn) firstBtn.disabled = !canGoBack;
+	if (prevBtn) prevBtn.disabled = !canGoBack;
+	if (nextBtn) nextBtn.disabled = !canGoForward;
+	if (lastBtn) lastBtn.disabled = !canGoForward;
+
+	let start = Math.max(1, currentPage - 2);
+	let end = Math.min(totalPages, start + 4);
+	start = Math.max(1, end - 4);
+
+	for (let p = start; p <= end; p++) {
+		const b = document.createElement("button");
+		b.className = "btn small";
+		b.textContent = String(p);
+		b.dataset.action = "quotes-page";
+		b.dataset.page = String(p);
+		if (p === currentPage) b.classList.add("primary");
+		container.appendChild(b);
 	}
 }
 
@@ -557,6 +725,7 @@ function escapeHtml(str) {
 }
 
 async function declareMaterial() {
+	setCollapsed("material", false);
 	const tab = await getActiveTab();
 	const indexUrl = normalizeUrl(tab?.url);
 	if (!indexUrl) {
@@ -611,8 +780,41 @@ async function createDeclaredMaterial() {
 
 	setStatusLine("Material created.");
 	lastSelectedMaterialId = res.materialId;
+	quotesPage = 1;
 	await cancelDeclare();
 	await refreshUI();
+}
+
+function makeExportFilename() {
+	const d = new Date();
+	const pad = (n) => String(n).padStart(2, "0");
+	const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+	return `reading-companion-export_${stamp}.json`;
+}
+
+async function exportAllData() {
+	setStatusLine("Exporting...");
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to export.");
+		return;
+	}
+
+	const payload = {
+		exportedAt: new Date().toISOString(),
+		data,
+	};
+	const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	try {
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = makeExportFilename();
+		a.click();
+		setStatusLine("Export downloaded.");
+	} finally {
+		setTimeout(() => URL.revokeObjectURL(url), 5000);
+	}
 }
 
 async function resetLocalData() {
@@ -632,6 +834,7 @@ async function resetLocalData() {
 
 	lastSelectedMaterialId = "";
 	chaptersPage = 1;
+	quotesPage = 1;
 	setStatusLine("All local data cleared.");
 	await refreshUI();
 }
@@ -699,7 +902,7 @@ async function addBookmark(bookmarkType) {
 	if (!url || !materialId) return;
 
 	const selected = await getSelectionFromTab(tab.id);
-	if (!selected) {
+	if (!selected?.text) {
 		setStatusLine("Select text on the page first.");
 		return;
 	}
@@ -708,7 +911,9 @@ async function addBookmark(bookmarkType) {
 		type: "addBookmark",
 		materialId,
 		url,
-		text: selected,
+		text: selected.text,
+		contextBefore: selected.contextBefore,
+		contextAfter: selected.contextAfter,
 		bookmarkType,
 	});
 
@@ -718,6 +923,13 @@ async function addBookmark(bookmarkType) {
 	}
 
 	setStatusLine("Saved.");
+	if (tab?.id) {
+		try {
+			await chrome.tabs.sendMessage(tab.id, { type: "refreshHighlights" });
+		} catch {
+			// ignore
+		}
+	}
 	await refreshUI();
 }
 
@@ -732,13 +944,75 @@ async function deleteBookmarkFromSelectedMaterial(payload) {
 		return;
 	}
 	setStatusLine("Deleted.");
+	try {
+		const tab = await getActiveTab();
+		if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: "refreshHighlights" });
+	} catch {
+		// ignore
+	}
 	await refreshUI();
 }
 
+async function openQuoteAtLocation(payload) {
+	const rawUrl = payload?.url;
+	const quoteId = typeof payload?.id === "string" ? payload.id : "";
+	const quoteText = payload?.text;
+	const contextBefore = typeof payload?.contextBefore === "string" ? payload.contextBefore : "";
+	const contextAfter = typeof payload?.contextAfter === "string" ? payload.contextAfter : "";
+
+	const targetUrl = normalizeUrl(rawUrl);
+	const text = typeof quoteText === "string" ? quoteText.trim() : "";
+	if (!targetUrl || !text) return;
+
+	const tab = await getActiveTab();
+	if (!tab?.id) {
+		await chrome.tabs.create({ url: targetUrl });
+		return;
+	}
+
+	setStatusLine("Opening quote...");
+	await chrome.tabs.update(tab.id, { url: targetUrl });
+
+	const tabId = tab.id;
+	const timeoutMs = 12000;
+	const start = Date.now();
+	await new Promise((resolve) => {
+		let done = false;
+		function cleanup() {
+			if (done) return;
+			done = true;
+			chrome.tabs.onUpdated.removeListener(listener);
+			resolve();
+		}
+		function listener(updatedTabId, changeInfo, updatedTab) {
+			if (updatedTabId !== tabId) return;
+			if (changeInfo.status !== "complete") return;
+			const current = normalizeUrl(updatedTab?.url);
+			if (current && current === targetUrl) cleanup();
+		}
+		chrome.tabs.onUpdated.addListener(listener);
+		const timer = setInterval(() => {
+			if (Date.now() - start > timeoutMs) {
+				clearInterval(timer);
+				cleanup();
+			}
+		}, 250);
+	});
+
+	// Best effort: refresh highlights then scroll to the quote text.
+	try {
+		await chrome.tabs.sendMessage(tabId, { type: "refreshHighlights" });
+		await chrome.tabs.sendMessage(tabId, { type: "scrollToQuote", id: quoteId, text, contextBefore, contextAfter });
+		setStatusLine("Jumped to quote.");
+	} catch {
+		setStatusLine("Opened, but couldn't jump to quote. Try again.");
+	}
+}
+
 async function setIgnoreScrollProgress(enabled) {
-	const url = lastSelectedChapterUrl;
+	const url = lastSelectedPageUrl;
 	if (!url) {
-		setStatusLine("No chapter selected.");
+		setStatusLine("No page selected.");
 		return;
 	}
 
@@ -755,6 +1029,7 @@ async function selectChapter(url) {
 	const chapterUrl = normalizeUrl(url);
 	if (!materialId || !chapterUrl) return;
 	lastSelectedChapterByMaterial[materialId] = chapterUrl;
+	quotesPage = 1;
 	await refreshUI();
 }
 
@@ -838,11 +1113,13 @@ function bind() {
 	safeOn("declareMaterial", "click", declareMaterial);
 	safeOn("declareCancel", "click", cancelDeclare);
 	safeOn("declareCreate", "click", createDeclaredMaterial);
+	safeOn("exportData", "click", exportAllData);
 	safeOn("resetData", "click", resetLocalData);
 
 	safeOn("materialSelect", "change", () => {
 		lastSelectedMaterialId = el("materialSelect")?.value || "";
 		chaptersPage = 1;
+		quotesPage = 1;
 		refreshUI();
 	});
 
@@ -896,11 +1173,63 @@ function bind() {
 		refreshUI();
 	});
 
+	// Quotes paging
+	safeOn("quotesFirst", "click", () => {
+		quotesPage = 1;
+		refreshUI();
+	});
+	safeOn("quotesLast", "click", () => {
+		quotesPage = Number.MAX_SAFE_INTEGER;
+		refreshUI();
+	});
+	safeOn("quotesPrev", "click", () => {
+		quotesPage = Math.max(1, quotesPage - 1);
+		refreshUI();
+	});
+	safeOn("quotesNext", "click", () => {
+		quotesPage = quotesPage + 1;
+		refreshUI();
+	});
+	safeOn("quotesPages", "click", (e) => {
+		const target = e.target;
+		if (!(target instanceof HTMLElement)) return;
+		if (target.dataset.action !== "quotes-page") return;
+		const p = Number(target.dataset.page);
+		if (!Number.isFinite(p) || p < 1) return;
+		quotesPage = p;
+		refreshUI();
+	});
+	safeOn("quotesGo", "click", () => {
+		const raw = (el("quotesPageInput").value || "").trim();
+		const p = Number(raw);
+		if (!Number.isFinite(p) || p < 1) {
+			setStatusLine("Enter a valid page number.");
+			return;
+		}
+		quotesPage = Math.floor(p);
+		refreshUI();
+	});
+
 	// Event delegation for per-item delete buttons.
 	safeOn("bookmarks", "click", (e) => {
 		const target = e.target;
 		if (!(target instanceof HTMLElement)) return;
-		if (target.dataset.action !== "delete-bookmark") return;
+		const action = target.dataset.action;
+		if (!action) return;
+
+		if (action === "open-quote") {
+			e.preventDefault();
+			openQuoteAtLocation({
+				url: target.dataset.quoteUrl,
+				id: target.dataset.quoteId,
+				text: target.dataset.quoteText,
+				contextBefore: target.dataset.quoteBefore,
+				contextAfter: target.dataset.quoteAfter,
+			});
+			return;
+		}
+
+		if (action !== "delete-bookmark") return;
 
 		const bookmarkId = target.dataset.bookmarkId;
 		if (bookmarkId) {
@@ -952,6 +1281,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 	// Default state: only Material section is visible.
 	setRequiresMaterialVisible(false);
 	setMultiPageVisible(false);
+	initCollapsibles();
 
 	bind();
 	await refreshUI();

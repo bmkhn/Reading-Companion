@@ -282,6 +282,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return sendResponse({ ok: true, data });
 	}
 
+	if (type === "getQuotesForUrl") {
+		const url = normalizeUrl(message.url);
+		if (!url) return sendResponse({ ok: false, error: "invalid_url" });
+
+		const data = await getAllData();
+		migrateBookmarkIds(data);
+
+		const quotes = [];
+		for (const m of Object.values(data.materials || {})) {
+			const bookmarks = Array.isArray(m?.bookmarks) ? m.bookmarks : [];
+			for (const b of bookmarks) {
+				if (normalizeUrl(b?.url) !== url) continue;
+				const id = typeof b?.id === "string" ? b.id : "";
+				const text = typeof b?.text === "string" ? b.text.trim() : "";
+				if (!text) continue;
+				quotes.push({
+					id,
+					text,
+					contextBefore: typeof b?.contextBefore === "string" ? b.contextBefore : "",
+					contextAfter: typeof b?.contextAfter === "string" ? b.contextAfter : "",
+				});
+			}
+		}
+
+		// Cap to keep highlighting work bounded.
+		return sendResponse({ ok: true, quotes: quotes.slice(0, 50) });
+	}
+
 	if (type === "setPageStatus") {
 		const url = normalizeUrl(message.url);
 		const status = message.status;
@@ -506,6 +534,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		const materialId = message.materialId;
 		const url = normalizeUrl(message.url);
 		const text = typeof message.text === "string" ? message.text.trim() : "";
+		const contextBefore = typeof message.contextBefore === "string" ? message.contextBefore : "";
+		const contextAfter = typeof message.contextAfter === "string" ? message.contextAfter : "";
 		const bookmarkType = message.bookmarkType; // "highlight" | "quote"
 
 		if (!materialId || !url || !text) return sendResponse({ ok: false, error: "invalid_args" });
@@ -523,6 +553,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		text,
 		url,
 		timestamp: nowUnixSeconds(),
+		contextBefore: contextBefore.slice(-120),
+		contextAfter: contextAfter.slice(0, 120),
 		...(bookmarkType ? { type: bookmarkType } : {}),
 		};
 

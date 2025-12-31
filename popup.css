@@ -173,12 +173,34 @@ body.declare-mode #materialSection {
 	display: block;
 }
 
-body.declare-mode #materialSection > .row:not(#declareForm) {
+body.declare-mode #materialBody > :not(#declareForm) {
 	display: none;
 }
 
-body.declare-mode #declareForm {
+body.declare-mode #materialBody.hidden {
+	display: block;
+}
+
+body.declare-mode #declareForm,
+body.declare-mode #declareForm.hidden {
 	display: flex;
+}
+
+.collapsible-header {
+	cursor: pointer;
+	user-select: none;
+}
+
+.collapsible-header:hover {
+	text-decoration: underline;
+}
+
+.list li:hover {
+	border-color: rgba(231, 238, 252, 0.22);
+}
+
+.link:hover {
+	text-decoration: underline;
 }
 
 .sep {
