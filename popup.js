@@ -1,4 +1,4 @@
-// Reading Companion - popup script
+// Mnemosyne - popup script
 // Responsibilities (V1):
 // - Show current page progress + status
 // - Create/select materials and manually add chapters
@@ -21,6 +21,8 @@ let quotesPage = 1;
 const QUOTES_PER_PAGE = 3;
 
 let pendingDeclareIndexUrl = "";
+let refreshQueued = false;
+let refreshRequested = false;
 
 function normalizeUrl(input) {
 	try {
@@ -60,6 +62,23 @@ async function bg(message) {
 	}
 }
 
+async function getStoredData() {
+	const data = await chrome.storage.local.get(["materials", "pages", "collections"]);
+	return {
+		materials: data.materials || {},
+		pages: data.pages || {},
+		collections: data.collections || {},
+	};
+}
+
+async function setStoredData(next) {
+	await chrome.storage.local.set({
+		materials: next.materials || {},
+		pages: next.pages || {},
+		collections: next.collections || {},
+	});
+}
+
 async function getSelectionFromTab(tabId) {
 	try {
 		const response = await chrome.tabs.sendMessage(tabId, { type: "getSelection" });
@@ -80,8 +99,11 @@ function el(id) {
 }
 
 function setStatusLine(text) {
-	el("statusLine").textContent = text || "";
+	const node = el("statusLine");
+	if (!node) return;
+	node.textContent = text || "";
 }
+
 
 function setDeclareMode(enabled) {
 	document.body.classList.toggle("declare-mode", Boolean(enabled));
@@ -112,6 +134,11 @@ function setRequiresPageVisible(hasPage) {
 	for (const node of gated) {
 		node.classList.toggle("hidden", !hasPage);
 	}
+}
+
+function setHidden(id, hidden) {
+	const node = el(id);
+	if (node) node.classList.toggle("hidden", Boolean(hidden));
 }
 
 function setRequiresMultiVisible(isMulti) {
@@ -231,6 +258,13 @@ function chapterTitle(chapter, pages) {
 	return fromPage;
 }
 
+function chapterDisplayLabel(chapter, pages) {
+	const explicit = chapterTitle(chapter, pages);
+	if (explicit) return explicit;
+	const order = Number(chapter?.order) || 0;
+	return order ? String(order) : "?";
+}
+
 function chapterByUrl(chapters, url) {
 	return (chapters || []).find((c) => c?.url === url) || null;
 }
@@ -339,13 +373,33 @@ async function refreshUI() {
 
 	setRequiresMaterialVisible(Boolean(selectedMaterialId));
 
+	// Empty-state: when there are no materials saved, hide everything except the
+	// "Add Material" section. (CSS does not currently hide dataSection.)
+	const hasAnyMaterials = materialIds.length > 0;
+	const hasSelectedMaterial = Boolean(selectedMaterialId);
+	setHidden("progressSection", !(hasAnyMaterials && hasSelectedMaterial));
+	setHidden("chaptersSection", !(hasAnyMaterials && hasSelectedMaterial));
+	setHidden("quotesSection", !(hasAnyMaterials && hasSelectedMaterial));
+
+	// Data section:
+	// - Always show when empty so Import Data is available.
+	// - Only show Export/Reset when we actually have saved materials.
+	setHidden("dataSection", false);
+	setHidden("exportRow", !hasAnyMaterials);
+	setHidden("resetRow", !hasAnyMaterials);
+
 	// Material header
 	const selectedMaterial = selectedMaterialId ? materialById(materials, selectedMaterialId) : null;
 	el("materialTitle").textContent = selectedMaterial ? (selectedMaterial.title || "Untitled") : "None";
 
 	const isMulti = Boolean(selectedMaterialId) && getMaterialKind(selectedMaterial) === "multi";
+	const isSingle = Boolean(selectedMaterialId) && getMaterialKind(selectedMaterial) === "single";
 	setMultiPageVisible(isMulti);
 	setRequiresMultiVisible(isMulti);
+	// Single-page note should only show when the selected material exists AND is single.
+	// Also hide it if selectedMaterialId is missing (hardening against UI desync).
+	setHidden("singlePageNote", !selectedMaterialId || !isSingle);
+
 
 	// Keep pagers in range
 	if (!isMulti) {
@@ -417,16 +471,20 @@ async function refreshUI() {
 		? clampProgress(selectedPage?.progress ?? (isMulti ? (selectedChapter?.progress ?? 0) : 0))
 		: null;
 
-	if (selectedPageUrl) {
-		el("pageProgress").textContent = String(selectedProgress ?? 0);
-	} else {
-		el("pageProgress").textContent = "—";
-	}
+	// If the material exists but there is no saved page/chapter record yet,
+	// show 0% instead of "—" so the progress section doesn't look empty.
+	el("pageProgress").textContent = String(selectedProgress ?? 0);
 
 	const isFinished = selectedPageUrl && selectedPage?.status === "finished";
 	if (markBtn) markBtn.textContent = isFinished ? "Unmark finished" : "Mark finished";
 	if (markBtn) markBtn.disabled = !selectedPageUrl;
 	if (goBtn) goBtn.disabled = !selectedPageUrl;
+
+	// If material is newly created, there may be no chapter/page records yet; show 0% instead of empty.
+	if (selectedPageUrl) {
+		el("pageProgress").textContent = String(selectedProgress ?? 0);
+	}
+
 
 	// Ignore scroll checkbox follows selected chapter.
 	const ignoreScroll = el("ignoreScroll");
@@ -465,18 +523,18 @@ async function refreshUI() {
 			const li = document.createElement("li");
 			const shortUrl = c.url.length > 64 ? c.url.slice(0, 64) + "…" : c.url;
 			const isSelected = Boolean(selectedChapterUrl) && c.url === selectedChapterUrl;
-			const title = chapterTitle(c, pages);
-			const displayTitle = title ? ` — ${escapeHtml(title)}` : "";
+			const displayLabel = chapterDisplayLabel(c, pages);
 
 			li.innerHTML = `
 				<div class="row between" style="margin-bottom: 0;">
 					<div>
-						<strong>Chapter ${escapeHtml(String(Number(c.order) || "?"))}</strong>${isSelected ? ` <span class="small">(selected)</span>` : ""}
+						<strong>Chapter ${escapeHtml(displayLabel)}</strong>${isSelected ? ` <span class="small">(selected)</span>` : ""}
 						<div class="small">${selectedChapterUrl && c.url === selectedChapterUrl ? escapeHtml(String(selectedProgress ?? clampProgress(c.progress ?? 0))) : escapeHtml(String(clampProgress(c.progress ?? 0)))}%</div>
 						<a class="small link ellipsis-link" data-action="open-chapter" data-url="${escapeHtml(c.url)}">${escapeHtml(shortUrl)}</a>
 					</div>
 					<div class="controls" style="flex-direction: column; align-items: flex-end; gap: 6px;">
 						<button class="btn small" data-action="select-chapter" data-url="${escapeHtml(c.url)}">Select</button>
+						<button class="btn small" data-action="rename-chapter" data-url="${escapeHtml(c.url)}">Rename</button>
 						<button class="btn small" data-action="open-chapter" data-url="${escapeHtml(c.url)}">Open</button>
 						<button class="btn small" data-action="delete-chapter" data-url="${escapeHtml(c.url)}">Delete</button>
 					</div>
@@ -778,6 +836,10 @@ async function cancelDeclare() {
 
 async function createDeclaredMaterial() {
 	const indexUrl = pendingDeclareIndexUrl;
+	// Refresh the UI immediately so the new material shows without reopening the extension.
+
+	// UI update should happen immediately after creation.
+
 	if (!indexUrl) {
 		setStatusLine("No index URL found.");
 		return;
@@ -811,14 +873,17 @@ function makeExportFilename() {
 	const d = new Date();
 	const pad = (n) => String(n).padStart(2, "0");
 	const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-	return `reading-companion-export_${stamp}.json`;
+	return `mnemosyne-export_${stamp}.json`;
 }
 
 async function exportAllData() {
 	setStatusLine("Exporting...");
-	const { ok, data } = await bg({ type: "getData" });
-	if (!ok) {
-		setStatusLine("Failed to export.");
+	let data;
+	try {
+		data = await getStoredData();
+	} catch (err) {
+		console.error("export getStoredData failed", err);
+		setStatusLine("Failed to export: storage read error.");
 		return;
 	}
 
@@ -828,15 +893,55 @@ async function exportAllData() {
 	};
 	const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 	const url = URL.createObjectURL(blob);
+
 	try {
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = makeExportFilename();
-		a.click();
+		if (chrome?.downloads?.download) {
+			await chrome.downloads.download({
+				url,
+				filename: makeExportFilename(),
+				saveAs: false,
+				conflictAction: "uniquify",
+			});
+		} else {
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = makeExportFilename();
+			a.click();
+		}
 		setStatusLine("Export downloaded.");
+	} catch (err) {
+		console.error("export download failed", err);
+		setStatusLine(`Export failed: ${err?.message || "download error"}`);
 	} finally {
-		setTimeout(() => URL.revokeObjectURL(url), 5000);
+		// Revoke ASAP to avoid Blob URL leaks; downloads/downloads.getURL already copied by this point.
+		try {
+			URL.revokeObjectURL(url);
+		} catch {
+			// ignore
+		}
 	}
+}
+
+function promptForChapterLabel(existingValue = "") {
+	const typed = prompt("Enter the chapter number or label (leave blank to use the next order):", existingValue || "");
+	if (typed === null) return null;
+	return typed.trim();
+}
+
+function queuePopupRefresh() {
+	refreshRequested = true;
+	if (refreshQueued) return;
+	refreshQueued = true;
+	Promise.resolve().then(async () => {
+		try {
+			while (refreshRequested) {
+				refreshRequested = false;
+				await refreshUI();
+			}
+		} finally {
+			refreshQueued = false;
+		}
+	});
 }
 
 async function readJsonFile(file) {
@@ -850,7 +955,8 @@ async function readJsonFile(file) {
 
 async function importAllDataFromFile(file) {
 	if (!file) return;
-	const typed = prompt("Type IMPORT to replace all saved extension data with this file:", "");
+	// Import should CREATE additional copies; do not replace existing selection/state.
+	const typed = prompt("Type IMPORT to merge imported data into your current saved data:", "");
 	if (typed === null) return;
 	if (typed !== "IMPORT") {
 		setStatusLine("Not imported.");
@@ -874,7 +980,7 @@ async function importAllDataFromFile(file) {
 		return;
 	}
 
-	const res = await bg({ type: "importData", payload: parsed });
+	const res = await bg({ type: "importDataMerge", payload: parsed });
 	if (!res?.ok) {
 		setStatusLine(`Import failed (${res?.error || "unknown"}).`);
 		return;
@@ -886,6 +992,7 @@ async function importAllDataFromFile(file) {
 	setStatusLine("Import complete.");
 	await refreshUI();
 }
+
 
 async function chooseImportFile() {
 	const input = el("importFile");
@@ -903,9 +1010,10 @@ async function resetLocalData() {
 	}
 
 	setStatusLine("Resetting data...");
-	const res = await bg({ type: "resetAllData" });
-	if (!res?.ok) {
-		setStatusLine(`Reset failed (${res?.error || "unknown"}).`);
+	try {
+		await chrome.storage.local.clear();
+	} catch {
+		setStatusLine("Reset failed.");
 		return;
 	}
 
@@ -927,17 +1035,23 @@ async function openSelectedMaterialIndex() {
 }
 
 async function deleteSelectedMaterial() {
-	const { ok, data } = await bg({ type: "getData" });
-	if (!ok) return;
 	const materialId = el("materialSelect").value;
+	if (!materialId) return;
+
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
 	const m = data.materials?.[materialId];
 	if (!m) return;
 
 	const title = String(m.title || "Untitled");
-	const typed = prompt(`Type the material title to delete:\n\n${title}`, "");
+	const typed = prompt(`Type DELETE to confirm deleting this material:\n\n${title}`, "");
 	if (typed === null) return;
-	if (typed !== title) {
-		setStatusLine("Title did not match. Not deleted.");
+	if (typed !== "DELETE") {
+		setStatusLine('Confirmation not matched. Type exactly "DELETE". Not deleted.');
 		return;
 	}
 
@@ -950,6 +1064,7 @@ async function deleteSelectedMaterial() {
 
 	lastSelectedMaterialId = "";
 	chaptersPage = 1;
+	quotesPage = 1;
 	setStatusLine("Material deleted.");
 	await refreshUI();
 }
@@ -961,7 +1076,22 @@ async function addCurrentAsChapter() {
 
 	if (!url || !materialId) return;
 
-	const res = await bg({ type: "addChapter", materialId, url });
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const material = data.materials?.[materialId];
+	const nextOrder = (Array.isArray(material?.chapters) ? material.chapters : []).reduce((max, chapter) => Math.max(max, Number(chapter?.order) || 0), 0) + 1;
+	const label = promptForChapterLabel(String(nextOrder));
+	if (label === null) {
+		setStatusLine("Not added.");
+		return;
+	}
+	const chapterLabel = label || String(nextOrder);
+
+	const res = await bg({ type: "addChapter", materialId, url, title: chapterLabel });
 	if (!res?.ok) {
 		setStatusLine("Failed to add chapter.");
 		return;
@@ -1015,9 +1145,44 @@ async function deleteBookmarkFromSelectedMaterial(payload) {
 	if (!materialId) return;
 
 	setStatusLine("Deleting quote...");
-	const res = await bg({ type: "deleteBookmark", materialId, ...payload });
-	if (!res?.ok) {
-		setStatusLine(`Failed to delete (${res?.error || "unknown"}).`);
+	let data;
+	try {
+		data = await getStoredData();
+	} catch {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const material = data.materials?.[materialId];
+	if (!material) {
+		setStatusLine("Failed to delete.");
+		return;
+	}
+
+	const bookmarkId = typeof payload?.bookmarkId === "string" ? payload.bookmarkId : "";
+	const url = normalizeUrl(payload?.url);
+	const timestamp = typeof payload?.timestamp === "number" ? payload.timestamp : null;
+	const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+	const existing = Array.isArray(material.bookmarks) ? material.bookmarks : [];
+	let nextBookmarks = existing;
+
+	if (bookmarkId) {
+		nextBookmarks = existing.filter((b) => b?.id !== bookmarkId);
+	} else {
+		nextBookmarks = existing.filter((b) => {
+			const bUrl = normalizeUrl(b?.url);
+			const sameUrl = url ? bUrl === url : true;
+			const sameTimestamp = timestamp != null ? b?.timestamp === timestamp : true;
+			const sameText = text ? (String(b?.text || "").trim() === text) : true;
+			return !(sameUrl && sameTimestamp && sameText);
+		});
+	}
+
+	data.materials[materialId] = { ...material, bookmarks: nextBookmarks };
+	try {
+		await setStoredData(data);
+	} catch {
+		setStatusLine("Failed to delete.");
 		return;
 	}
 	setStatusLine("Deleted.");
@@ -1112,17 +1277,30 @@ async function selectChapter(url) {
 
 async function deleteChapter(url) {
 	const materialId = el("materialSelect")?.value || "";
+	// Persist selection locally, but do deletion via background using the material+chapter url.
+
+	// background.js expects the raw URL as `url`.
+
 	const chapterUrl = normalizeUrl(url);
 	if (!materialId || !chapterUrl) return;
 
 	// Warn if this chapter has quotes; deleting the chapter will also delete those quotes.
-	const { ok, data } = await bg({ type: "getData" });
-	if (!ok) {
+	let data;
+	try {
+		data = await bg({ type: "getData" });
+	} catch {
 		setStatusLine("Failed to load data.");
 		return;
 	}
-	const material = data.materials?.[materialId];
+	if (!data?.ok) {
+	setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const material = data?.materials?.[materialId];
 	const bookmarks = Array.isArray(material?.bookmarks) ? material.bookmarks : [];
+
+	// quoteCount computed from bookmarks below.
 	const quoteCount = bookmarks.filter((b) => normalizeUrl(b?.url) === chapterUrl).length;
 	const promptText = quoteCount
 		? `Type DELETE to remove this chapter.\n\nWARNING: This will also delete ${quoteCount} quote(s) saved on this chapter.`
@@ -1141,14 +1319,11 @@ async function deleteChapter(url) {
 		return;
 	}
 
-	if (Number(res.removedQuotesCount) > 0) {
-		setStatusLine(`Chapter deleted. Removed ${res.removedQuotesCount} quote(s).`);
-	}
-
-	// If we deleted the selected chapter, clear selection so refreshUI picks latest.
 	if (lastSelectedChapterByMaterial[materialId] === chapterUrl) {
 		delete lastSelectedChapterByMaterial[materialId];
 	}
+
+	setStatusLine("Chapter deleted.");
 	await refreshUI();
 }
 
@@ -1180,12 +1355,50 @@ async function goToLatestChapter() {
 	}
 }
 
+async function renameSelectedChapter() {
+	const materialId = el("materialSelect")?.value || "";
+	if (!materialId) return;
+
+	const currentUrl = lastSelectedChapterUrl || lastSelectedPageUrl;
+	if (!currentUrl) {
+		setStatusLine("No chapter selected.");
+		return;
+	}
+
+	const { ok, data } = await bg({ type: "getData" });
+	if (!ok) {
+		setStatusLine("Failed to load data.");
+		return;
+	}
+
+	const material = data.materials?.[materialId];
+	const chapter = chapterByUrl(sortChapters(material?.chapters || []), currentUrl);
+	if (!chapter) {
+		setStatusLine("Chapter not found.");
+		return;
+	}
+
+	const currentLabel = chapterTitle(chapter, data.pages || {});
+	const typed = prompt("Enter the chapter number or label:", currentLabel || String(Number(chapter.order) || ""));
+	if (typed === null) return;
+
+	const res = await bg({ type: "renameChapter", materialId, url: currentUrl, title: typed.trim() });
+	if (!res?.ok) {
+		setStatusLine(`Failed to rename chapter (${res?.error || "unknown"}).`);
+		return;
+	}
+
+	setStatusLine("Chapter renamed.");
+	await refreshUI();
+}
+
 
 
 function bind() {
 	safeOn("markFinished", "click", toggleFinished);
 	safeOn("goToProgress", "click", goToSelectedProgress);
 	safeOn("goToLatestChapter", "click", goToLatestChapter);
+	safeOn("renameChapter", "click",  renameSelectedChapter);
 
 	safeOn("declareMaterial", "click", declareMaterial);
 	safeOn("declareCancel", "click", cancelDeclare);
@@ -1359,8 +1572,18 @@ function bind() {
 			await deleteChapter(url);
 			return;
 		}
+		if (action === "rename-chapter") {
+			lastSelectedChapterByMaterial[el("materialSelect")?.value || ""] = url;
+			lastSelectedChapterUrl = url;
+			await renameSelectedChapter();
+			return;
+		}
 	});
 }
+
+chrome.storage.onChanged.addListener(() => {
+	queuePopupRefresh();
+});
 
 document.addEventListener("DOMContentLoaded", async () => {
 	// Default state: only Material section is visible.

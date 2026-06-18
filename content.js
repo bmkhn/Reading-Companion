@@ -1,4 +1,4 @@
-// Reading Companion - content script
+// Mnemosyne - content script
 // Responsibilities (V1):
 // - Track scroll-based reading progress per page
 // - Provide selected text to popup for saving as highlight/quote

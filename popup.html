@@ -3,12 +3,12 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>Reading Companion</title>
+		<title>Mnemosyne</title>
 		<link rel="stylesheet" href="popup.css" />
 	</head>
 	<body>
 		<header class="header">
-			<div class="title">Reading Companion</div>
+			<div class="title">Mnemosyne</div>
 			<div id="currentUrl" class="subtitle"></div>
 		</header>
 
@@ -16,8 +16,8 @@
 			<section class="card" id="materialSection">
 				<div class="row between" style="margin-bottom: 0;">
 					<div id="materialHeader" class="collapsible-header">
-						<div class="label">Reading Material</div>
-						<div id="materialTitle" class="value">None</div>
+						<div class="label">Material</div>
+						<div id="materialTitle" class="value"></div>
 					</div>
 					<div class="controls">
 						<button id="declareMaterial" class="btn primary">Add material</button>
@@ -61,6 +61,7 @@
 			</section>
 
 			<section class="card requires-material" id="singlePageNote">
+
 				<div class="hint">
 					This material is marked as <strong>single-page</strong>. Chapters are hidden.
 				</div>
@@ -113,11 +114,21 @@
 			</section>
 
 			<section class="card requires-material" id="quotesSection">
+
+
 				<div class="row between" style="margin-bottom: 0;">
-					<div id="quotesHeader" class="label collapsible-header">Quotes</div>
+					<div class="row between" style="margin-bottom: 0; gap: 6px;">
+						<div id="quotesHeader" class="label collapsible-header">Quotes</div>
+						<span class="tooltip-icon" aria-hidden="true" title="Highlight the text you'd like to quote and click 'Add Quote'.
+Refresh the page if the quote option isn't working.">ⓘ</span>
+					</div>
+
 					<div class="controls">
 						<div class="hint" id="quotesPageHint"></div>
 						<button id="addQuote" class="btn">Add quote</button>
+
+
+
 					</div>
 				</div>
 
@@ -140,6 +151,8 @@
 			</section>
 
 			<section class="card" id="dataSection">
+
+
 				<div class="row between" style="margin-bottom: 0;">
 					<div id="dataHeader" class="label collapsible-header">Data</div>
 				</div>

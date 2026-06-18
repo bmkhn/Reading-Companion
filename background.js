@@ -1,4 +1,4 @@
-// Reading Companion - MV3 service worker
+// Mnemosyne - MV3 service worker
 // Responsibilities (V1):
 // - Persist scroll progress per page
 // - Manage materials (index + chapters)
@@ -179,7 +179,7 @@ async function maybePromptAddChapter(tab) {
 	chrome.notifications.create(notificationId, {
 	type: "basic",
 	iconUrl: "icons/icon128.png",
-	title: "Reading Companion",
+	title: "Mnemosyne",
 	message: `Add this page as the next chapter for “${material.title || "Untitled"}”?`,
 	buttons: [{ title: "Add as chapter" }, { title: "Ignore" }],
 	priority: 1,
@@ -269,6 +269,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		await setAllData(next);
 		return sendResponse({ ok: true });
 	}
+
+	if (type === "importDataMerge") {
+		const payload = message?.payload;
+		const maybeData = payload && typeof payload === "object" && payload.data && typeof payload.data === "object"
+			? payload.data
+			: payload;
+
+		if (!maybeData || typeof maybeData !== "object") {
+			return sendResponse({ ok: false, error: "invalid_payload" });
+		}
+
+		const incoming = {
+			materials: (maybeData.materials && typeof maybeData.materials === "object") ? maybeData.materials : {},
+			pages: (maybeData.pages && typeof maybeData.pages === "object") ? maybeData.pages : {},
+			collections: (maybeData.collections && typeof maybeData.collections === "object") ? maybeData.collections : {},
+		};
+
+		if (Array.isArray(incoming.materials) || Array.isArray(incoming.pages) || Array.isArray(incoming.collections)) {
+			return sendResponse({ ok: false, error: "invalid_shape" });
+		}
+
+		// Merge strategy:
+		// - Materials: if materialId conflicts, re-key with a new materialId.
+		// - Pages: merge by URL, overwriting fields from incoming when present.
+		// - Collections: if materialId got remapped, keep consistency.
+		const existing = await getAllData();
+		const idMap = new Map(); // oldMaterialId -> newMaterialId
+		const existingMaterials = existing.materials || {};
+
+		for (const oldId of Object.keys(incoming.materials || {})) {
+			const newId = existingMaterials[oldId] ? makeId("material") : oldId;
+			idMap.set(oldId, newId);
+		}
+
+		const nextMaterials = { ...(existing.materials || {}) };
+		for (const [oldId, m] of Object.entries(incoming.materials || {})) {
+			const targetId = idMap.get(oldId);
+			if (!targetId) continue;
+			const cloned = m ? JSON.parse(JSON.stringify(m)) : {};
+			// Ensure bookmark ids exist/are stable.
+			migrateBookmarkIds({ materials: { [targetId]: cloned } });
+			// Also ensure chapters order is normalized if present.
+			if (Array.isArray(cloned.chapters)) {
+				cloned.chapters = cloned.chapters.map((c) => ({ ...c }));
+			}
+			nextMaterials[targetId] = cloned;
+		}
+
+		const nextPages = { ...(existing.pages || {}) };
+		for (const [url, p] of Object.entries(incoming.pages || {})) {
+			nextPages[url] = { ...(nextPages[url] || {}), ...(p || {}) };
+		}
+
+		const nextCollections = { ...(existing.collections || {}) };
+		for (const [collectionName, ids] of Object.entries(incoming.collections || {})) {
+			const existingIds = Array.isArray(nextCollections[collectionName]) ? nextCollections[collectionName] : [];
+			const incomingIds = Array.isArray(ids) ? ids : [];
+			const remapped = incomingIds.map((id) => idMap.get(id) || id).filter(Boolean);
+			// Union
+			nextCollections[collectionName] = Array.from(new Set([...remapped, ...existingIds]));
+		}
+
+		await setAllData({ materials: nextMaterials, pages: nextPages, collections: nextCollections });
+		return sendResponse({ ok: true });
+	}
+
 
 	if (type === "pageProgress") {
 		const url = normalizeUrl(message.url);
@@ -449,6 +515,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (type === "addChapter") {
 		const materialId = message.materialId;
 		const url = normalizeUrl(message.url);
+		const title = typeof message.title === "string" ? message.title.trim() : "";
 		if (!materialId || !url) return sendResponse({ ok: false, error: "invalid_args" });
 
 		const data = await getAllData();
@@ -464,7 +531,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		...material,
 		chapters: [
 			...(material.chapters || []),
-			{ url, order, progress: clampProgress(pageProgress ?? 0), ...(pageTitle ? { title: pageTitle } : {}) },
+			{
+				url,
+				order,
+				progress: clampProgress(pageProgress ?? 0),
+				...(title ? { title } : (pageTitle ? { title: pageTitle } : {})),
+			},
 		],
 		};
 
