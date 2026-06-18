@@ -577,9 +577,6 @@ async function refreshUI() {
 	const quoteItems = allQuotes.slice(quoteStart, quoteStart + QUOTES_PER_PAGE);
 
 	const indexUrl = selectedMaterial ? normalizeUrl(selectedMaterial.indexUrl) : "";
-	const chapterOrderByUrl = isMulti
-		? new Map(chaptersAll.map((c) => [c.url, Number(c.order) || 0]))
-		: null;
 
 	if (quoteItems.length) {
 		for (const b of quoteItems) {
@@ -595,11 +592,16 @@ async function refreshUI() {
 
 			let sourceLabel = "";
 			if (isMulti) {
-				const chapterOrder = quoteUrl && chapterOrderByUrl ? chapterOrderByUrl.get(quoteUrl) : null;
-				if (typeof chapterOrder === "number" && chapterOrder > 0) {
-					sourceLabel = `Chapter ${chapterOrder}`;
-				} else if (quoteUrl && indexUrl && quoteUrl === indexUrl) {
+				if (quoteUrl && indexUrl && quoteUrl === indexUrl) {
 					sourceLabel = "Index";
+				} else if (quoteUrl) {
+					const chap = chapterByUrl(chaptersAll, quoteUrl);
+					if (chap) {
+						const displayLabel = chapterDisplayLabel(chap, pages);
+						sourceLabel = `Chapter ${displayLabel}`;
+					} else {
+						sourceLabel = "Other page";
+					}
 				} else {
 					sourceLabel = "Other page";
 				}
@@ -608,7 +610,6 @@ async function refreshUI() {
 			li.innerHTML = `
 				<div class="row between" style="margin-bottom: 0;">
 					<div>
-						${sourceLabel ? `<span class="small">From ${escapeHtml(sourceLabel)}</span>` : ""}
 						${when ? ` <span class="small">(${escapeHtml(when)})</span>` : ""}
 					</div>
 					<button class="btn small" ${deleteAttrs}>Delete</button>
@@ -1303,8 +1304,8 @@ async function deleteChapter(url) {
 	// quoteCount computed from bookmarks below.
 	const quoteCount = bookmarks.filter((b) => normalizeUrl(b?.url) === chapterUrl).length;
 	const promptText = quoteCount
-		? `Type DELETE to remove this chapter.\n\nWARNING: This will also delete ${quoteCount} quote(s) saved on this chapter.`
-		: "Type DELETE to remove this chapter:";
+		? `Type DELETE to remove this chapter.\n\nWARNING: This will also delete quote(s) saved on this chapter.`
+		: "Type DELETE to remove this chapter.\n\nWARNING: This will also delete quote(s) saved on this chapter.";
 	const typed = prompt(promptText, "");
 	if (typed === null) return;
 	if (typed !== "DELETE") {
